@@ -10,6 +10,8 @@ public sealed record GeoPoint(
 
 public sealed record AllowedTransition(JobStatus To, bool RequiresNote, bool RequiresSchedule);
 
+/// <param name="CanEdit">False once the job is Completed or Cancelled.</param>
+/// <param name="CanDelete">Only Draft and Cancelled jobs can be deleted.</param>
 public sealed record JobResponse(
     Guid Id,
     string Reference,
@@ -26,6 +28,8 @@ public sealed record JobResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     uint Version,
+    bool CanEdit,
+    bool CanDelete,
     IReadOnlyList<AllowedTransition> AllowedTransitions);
 
 public sealed record JobPage(IReadOnlyList<JobResponse> Items, int Page, int PageSize, int Total);
@@ -89,6 +93,7 @@ public enum JobSort
     Distance,
 }
 
+/// <param name="Bbox">Optional area as <c>minLng,minLat,maxLng,maxLat</c> ("search this area").</param>
 public sealed record JobListQuery(
     [property: FromQuery(Name = "status")] JobStatus[]? Status,
     [property: FromQuery(Name = "priority")] JobPriority[]? Priority,
@@ -96,6 +101,7 @@ public sealed record JobListQuery(
     [property: FromQuery(Name = "nearLat")] double? NearLat,
     [property: FromQuery(Name = "nearLng")] double? NearLng,
     [property: FromQuery(Name = "radiusKm")] double? RadiusKm,
+    [property: FromQuery(Name = "bbox")] string? Bbox,
     [property: FromQuery(Name = "sort")] JobSort? Sort,
     [property: FromQuery(Name = "page")] int? Page,
     [property: FromQuery(Name = "pageSize")] int? PageSize);
@@ -125,6 +131,8 @@ internal static class JobMapping
         job.CreatedAt,
         job.UpdatedAt,
         job.Version,
+        !JobLifecycle.IsTerminal(job.Status),
+        JobLifecycle.CanDelete(job.Status),
         [.. JobLifecycle.AllowedFrom(job.Status).Select(rule =>
             new AllowedTransition(rule.To, rule.RequiresNote, rule.RequiresSchedule))]);
 

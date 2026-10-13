@@ -15,7 +15,7 @@ public static class JobEndpoints
 
         jobs.MapGet("", ListJobs)
             .WithName("ListJobs")
-            .WithSummary("List jobs with filters, text search, radius search and paging.");
+            .WithSummary("List jobs with filters, text search, radius or area search, and paging.");
 
         jobs.MapGet("/map", ListMapPoints)
             .WithName("ListJobMapPoints")
@@ -106,6 +106,19 @@ public static class JobEndpoints
             }
         }
 
+        Geometry? area = null;
+        if (query.Bbox is not null)
+        {
+            if (JobQueries.TryParseBbox(query.Bbox, out var box, out var bboxError))
+            {
+                area = box;
+            }
+            else
+            {
+                errors["bbox"] = [bboxError];
+            }
+        }
+
         var sort = query.Sort ?? (center is null ? JobSort.Updated : JobSort.Distance);
         if (sort == JobSort.Distance && center is null && !errors.ContainsKey("near"))
         {
@@ -121,6 +134,11 @@ public static class JobEndpoints
         if (center is not null)
         {
             jobs = jobs.Where(job => EF.Functions.IsWithinDistance(job.Location, center, radiusMeters, true));
+        }
+
+        if (area is not null)
+        {
+            jobs = jobs.Where(job => job.Location.Intersects(area));
         }
 
         var total = await jobs.CountAsync(cancellationToken);

@@ -3,8 +3,8 @@ using Npgsql;
 namespace Sitework.Api.Data;
 
 /// <summary>
-/// Database settings supplied piecewise (e.g. Kubernetes env vars fed from a secret), used when no
-/// full <c>ConnectionStrings:Sitework</c> is configured. Building the string with
+/// Database settings supplied piecewise (e.g. Kubernetes env vars and a mounted secret), used when
+/// no full <c>ConnectionStrings:Sitework</c> is configured. Building the string with
 /// <see cref="NpgsqlConnectionStringBuilder"/> keeps generated passwords with special characters safe.
 /// </summary>
 public sealed class DatabaseOptions
@@ -14,33 +14,52 @@ public sealed class DatabaseOptions
     public string Name { get; init; } = "sitework";
     public string? Username { get; init; }
     public string? Password { get; init; }
+
+    /// <summary>
+    /// A file holding the password, re-read periodically. RDS rotates its managed password, and a
+    /// mounted Kubernetes Secret updates in place, so new connections pick up the new password
+    /// without restarting pods. Takes precedence over <see cref="Password"/>.
+    /// </summary>
+    public string? PasswordFile { get; init; }
+
     public SslMode SslMode { get; init; } = SslMode.Prefer;
 }
 
+public sealed record DatabaseConnectionSettings(string? ConnectionString, string? PasswordFile = null);
+
 public static class DatabaseConnection
 {
-    public static string? Resolve(IConfiguration configuration)
+    public static DatabaseConnectionSettings Resolve(IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("Sitework");
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
-            return connectionString;
+            return new DatabaseConnectionSettings(connectionString);
         }
 
         var options = configuration.GetSection("Database").Get<DatabaseOptions>();
         if (string.IsNullOrWhiteSpace(options?.Host))
         {
-            return null;
+            return new DatabaseConnectionSettings(null);
         }
 
-        return new NpgsqlConnectionStringBuilder
+        var builder = new NpgsqlConnectionStringBuilder
         {
             Host = options.Host,
             Port = options.Port,
             Database = options.Name,
             Username = options.Username,
-            Password = options.Password,
             SslMode = options.SslMode,
-        }.ConnectionString;
+            // Skips probing for Kerberos libraries, which the chiseled image doesn't ship.
+            GssEncryptionMode = GssEncryptionMode.Disable,
+        };
+
+        var passwordFile = string.IsNullOrWhiteSpace(options.PasswordFile) ? null : options.PasswordFile;
+        if (passwordFile is null)
+        {
+            builder.Password = options.Password;
+        }
+
+        return new DatabaseConnectionSettings(builder.ConnectionString, passwordFile);
     }
 }

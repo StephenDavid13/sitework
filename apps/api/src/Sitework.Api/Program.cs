@@ -28,6 +28,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddValidation();
 builder.Services.AddOpenApi();
 builder.Services.AddClientProtection(builder.Configuration);
+builder.Services.AddObservability(builder.Configuration);
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -43,6 +44,7 @@ if (DatabaseMaintenance.ParseCommand(args) is { } command)
 }
 
 app.UseForwardedHeaders();
+app.UseSecurityHeaders();
 app.UseExceptionHandler(new ExceptionHandlerOptions
 {
     // Malformed JSON or an unknown enum value is the client's fault: 400, not 500.

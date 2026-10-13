@@ -31,7 +31,7 @@
         "tags": [
           "Jobs"
         ],
-        "summary": "List jobs with filters, text search, radius search and paging.",
+        "summary": "List jobs with filters, text search, radius or area search, and paging.",
         "operationId": "ListJobs",
         "parameters": [
           {
@@ -83,6 +83,13 @@
             "schema": {
               "type": "number",
               "format": "double"
+            }
+          },
+          {
+            "name": "bbox",
+            "in": "query",
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -842,6 +849,8 @@
           "createdAt",
           "updatedAt",
           "version",
+          "canEdit",
+          "canDelete",
           "allowedTransitions"
         ],
         "type": "object",
@@ -914,6 +923,12 @@
           "version": {
             "type": "integer",
             "format": "uint32"
+          },
+          "canEdit": {
+            "type": "boolean"
+          },
+          "canDelete": {
+            "type": "boolean"
           },
           "allowedTransitions": {
             "type": "array",

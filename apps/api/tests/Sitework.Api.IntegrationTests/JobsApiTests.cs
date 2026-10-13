@@ -24,6 +24,8 @@ public sealed class JobsApiTests(PostgisFixture postgis)
         job.Reference.ShouldStartWith("JOB-");
         job.Location.ShouldBe(new GeoPoint(-36.8485, 174.7633));
         job.Version.ShouldBeGreaterThan(0u);
+        job.CanEdit.ShouldBeTrue();
+        job.CanDelete.ShouldBeTrue();
         job.AllowedTransitions.Select(t => t.To).ShouldBe([JobStatus.Scheduled, JobStatus.Cancelled], ignoreOrder: true);
         job.AllowedTransitions.Single(t => t.To == JobStatus.Cancelled).RequiresNote.ShouldBeTrue();
         job.AllowedTransitions.Single(t => t.To == JobStatus.Scheduled).RequiresSchedule.ShouldBeTrue();
@@ -117,6 +119,8 @@ public sealed class JobsApiTests(PostgisFixture postgis)
         job.Status.ShouldBe(JobStatus.Completed);
         job.CompletedAt.ShouldNotBeNull();
         job.AllowedTransitions.ShouldBeEmpty();
+        job.CanEdit.ShouldBeFalse();
+        job.CanDelete.ShouldBeFalse();
 
         var history = await _jobs.ReadAsync<StatusChangeResponse[]>($"/api/jobs/{job.Id}/history");
         history.Select(change => change.To).ShouldBe(
@@ -236,6 +240,19 @@ public sealed class JobsApiTests(PostgisFixture postgis)
         point.Reference.ShouldBe(inside.Reference);
         point.Latitude.ShouldBe(lat, tolerance: 1e-9);
         point.Longitude.ShouldBe(lng, tolerance: 1e-9);
+    }
+
+    [Fact]
+    public async Task List_can_be_limited_to_a_map_area()
+    {
+        var (lat, lng) = RemoteArea();
+        var inside = await _jobs.CreateAsync(JobsClient.NewJob(latitude: lat, longitude: lng));
+        await _jobs.CreateAsync(JobsClient.NewJob(latitude: lat - 1, longitude: lng));
+
+        var bbox = FormattableString.Invariant($"{lng - 0.01},{lat - 0.01},{lng + 0.01},{lat + 0.01}");
+        var page = await _jobs.ReadAsync<JobPage>($"/api/jobs?bbox={bbox}");
+
+        page.Items.ShouldHaveSingleItem().Id.ShouldBe(inside.Id);
     }
 
     [Theory]

@@ -27,7 +27,7 @@ public sealed class PostgisFixture : IAsyncLifetime
         await _container.StartAsync();
 
         var options = new DbContextOptionsBuilder<SiteworkDbContext>();
-        SiteworkDbContext.Configure(options, ConnectionString);
+        SiteworkDbContext.Configure(options, new DatabaseConnectionSettings(ConnectionString));
         await using var db = new SiteworkDbContext(options.Options);
         await DatabaseMaintenance.ApplyMigrationsAsync(db);
 

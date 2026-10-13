@@ -57,6 +57,10 @@ public static class DatabaseMaintenance
     /// <summary>Applies migrations, then refreshes Npgsql's type cache in case PostGIS was just installed.</summary>
     public static async Task ApplyMigrationsAsync(SiteworkDbContext db, CancellationToken cancellationToken = default)
     {
+        // Fail fast on a wrong database name: MigrateAsync would otherwise create a new, empty database.
+        await db.Database.OpenConnectionAsync(cancellationToken);
+        await db.Database.CloseConnectionAsync();
+
         await db.Database.MigrateAsync(cancellationToken);
 
         var connection = (NpgsqlConnection)db.Database.GetDbConnection();

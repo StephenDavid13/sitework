@@ -126,11 +126,11 @@ public static class DemoDataSeeder
             return;
         }
 
-        // Upcoming work is scheduled in the future; work already under way was scheduled in the past.
+        // Upcoming work is scheduled in the future; work that has started was due just before it started.
         var scheduledFor = target == JobStatus.Scheduled
-            ? now.AddDays(random.Next(1, 15)).Date.AddHours(random.Next(7, 16))
-            : at.AddDays(random.Next(1, 4)).Date.AddHours(random.Next(7, 16));
-        Step(job, JobStatus.Scheduled, null, new DateTimeOffset(scheduledFor, TimeSpan.Zero), ref at);
+            ? new DateTimeOffset(now.AddDays(random.Next(1, 15)).Date.AddHours(random.Next(19, 28)), TimeSpan.Zero)
+            : at.AddHours(5);
+        Step(job, JobStatus.Scheduled, null, scheduledFor, ref at);
 
         switch (target)
         {
