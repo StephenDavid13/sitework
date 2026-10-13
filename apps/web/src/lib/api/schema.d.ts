@@ -28,7 +28,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List jobs with filters, text search, radius search and paging. */
+        /** List jobs with filters, text search, radius or area search, and paging. */
         get: operations["ListJobs"];
         put?: never;
         /** Create a job. New jobs always start as Draft. */
@@ -214,6 +214,8 @@ export interface components {
             updatedAt: string;
             /** Format: uint32 */
             version: number;
+            canEdit: boolean;
+            canDelete: boolean;
             allowedTransitions: components["schemas"]["AllowedTransition"][];
         };
         /** @enum {unknown} */
@@ -314,6 +316,7 @@ export interface operations {
                 nearLat?: number;
                 nearLng?: number;
                 radiusKm?: number;
+                bbox?: string;
                 sort?: components["schemas"]["JobSort"];
                 page?: number;
                 pageSize?: number;

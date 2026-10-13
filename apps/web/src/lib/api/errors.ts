@@ -4,6 +4,8 @@ export type ProblemDetails = {
   title?: string;
   status?: number;
   detail?: string;
+  /** Stable reason the UI can branch on, e.g. `stale_version` or `transition_not_allowed`. */
+  code?: string;
   errors?: Record<string, string[]>;
 };
 
@@ -32,6 +34,22 @@ export function isProblemDetails(value: unknown): value is ProblemDetails {
   );
 }
 
+export function isApiError(
+  error: unknown,
+  status?: number,
+  code?: string,
+): error is ApiError {
+  return (
+    error instanceof ApiError &&
+    (status === undefined || error.status === status) &&
+    (code === undefined || error.problem?.code === code)
+  );
+}
+
+/** Someone else changed the job since it was loaded. */
+export const isStaleVersion = (error: unknown) =>
+  isApiError(error, 409, "stale_version");
+
 /** Network failures and 5xx responses are worth retrying; 4xx responses are not. */
 export function isRetryable(error: unknown): boolean {
   return !(error instanceof ApiError) || error.status >= 500;
@@ -56,4 +74,23 @@ export function describeError(error: unknown): {
     detail:
       "The Sitework API isn't responding. Check your connection and try again.",
   };
+}
+
+/**
+ * Validation messages keyed by camelCase field path. The API reports model-binding errors with
+ * PascalCase paths ("Location.Latitude") and domain rules in camelCase ("scheduledFor").
+ */
+export function fieldErrors(error: unknown): Record<string, string> {
+  if (!(error instanceof ApiError) || !error.problem?.errors) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(error.problem.errors).map(([path, messages]) => [
+      path
+        .split(".")
+        .map((part) => part.charAt(0).toLowerCase() + part.slice(1))
+        .join("."),
+      messages[0] ?? "Invalid value",
+    ]),
+  );
 }
