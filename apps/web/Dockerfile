@@ -2,7 +2,7 @@
 # Build context: apps/web. Multi-arch: the build runs natively on the build host (the output
 # is platform-independent JavaScript); only the small runtime stage is per target platform.
 
-FROM --platform=$BUILDPLATFORM node:24-alpine AS base
+FROM --platform=$BUILDPLATFORM node:26-alpine AS base
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
 WORKDIR /app
@@ -17,7 +17,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
 
-FROM node:24-alpine AS runtime
+FROM node:26-alpine AS runtime
 # The standalone server needs only `node`: drop the bundled package managers (and their CVEs).
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
       /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
