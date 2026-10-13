@@ -78,6 +78,19 @@ All state uses S3 native locking (`use_lockfile = true`); there is no DynamoDB t
    --rollback-on-failure`), then smoke-tests `https://<subdomain>/api/status`. To deploy a commit by
    hand: `make kubeconfig && IMAGE_TAG=<sha> make aws-deploy`.
 
+   **If an organization policy blocks GitHub OIDC providers** (an SCP denying
+   `iam:*OpenIDConnectProvider*`), set `enable_github_deploy = false` in
+   `foundation/terraform.tfvars`. Terraform then skips the provider, the CI role and its EKS
+   access entry. CI still runs every check on every push, but releases run from a workstation
+   with AWS credentials, Docker and `make kubeconfig`:
+
+   ```sh
+   make aws-release   # build arm64 images for HEAD, push to ECR, migrate + helm upgrade
+   ```
+
+   This is the setup for the `dev` account (217668541607), whose organization blocks OIDC
+   providers.
+
 ### What CI can do
 
 The role trusts only `repo:<github_repository>:ref:refs/heads/main` with audience `sts.amazonaws.com`.

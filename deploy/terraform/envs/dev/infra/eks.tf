@@ -75,12 +75,15 @@ module "eks" {
     }
   }
 
-  # CI deploy role from foundation: maps into a Kubernetes group with no cluster-wide
-  # rights. The platform stack binds that group to a Role in the app namespace only.
+  # CI deploy role from foundation (only when it was created): maps into a Kubernetes group
+  # with no cluster-wide rights. The platform stack binds that group to a Role in the app
+  # namespace only.
   access_entries = {
-    github_deploy = {
-      principal_arn     = local.foundation.ci_role_arn
-      kubernetes_groups = ["sitework-deployers"]
-    }
+    for name, entry in {
+      github_deploy = {
+        principal_arn     = local.foundation.ci_role_arn
+        kubernetes_groups = ["sitework-deployers"]
+      }
+    } : name => entry if entry.principal_arn != null
   }
 }

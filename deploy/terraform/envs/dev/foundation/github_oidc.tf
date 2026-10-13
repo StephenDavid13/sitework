@@ -7,7 +7,7 @@ locals {
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
-  count = var.github_oidc_provider_arn == null ? 1 : 0
+  count = var.enable_github_deploy && var.github_oidc_provider_arn == null ? 1 : 0
 
   url            = "https://${local.github_oidc_host}"
   client_id_list = ["sts.amazonaws.com"]
@@ -16,15 +16,15 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 # Validates at plan time that the supplied provider actually exists.
 data "aws_iam_openid_connect_provider" "github" {
-  count = var.github_oidc_provider_arn == null ? 0 : 1
+  count = var.enable_github_deploy && var.github_oidc_provider_arn != null ? 1 : 0
 
   arn = var.github_oidc_provider_arn
 }
 
 locals {
   github_oidc_provider_arn = (
-    var.github_oidc_provider_arn == null
-    ? aws_iam_openid_connect_provider.github[0].arn
+    !var.enable_github_deploy ? null
+    : var.github_oidc_provider_arn == null ? aws_iam_openid_connect_provider.github[0].arn
     : data.aws_iam_openid_connect_provider.github[0].arn
   )
 }
@@ -34,6 +34,8 @@ locals {
 ################################################################################
 
 data "aws_iam_policy_document" "github_deploy_trust" {
+  count = var.enable_github_deploy ? 1 : 0
+
   statement {
     sid     = "GitHubActionsMainBranch"
     effect  = "Allow"
@@ -61,9 +63,11 @@ data "aws_iam_policy_document" "github_deploy_trust" {
 }
 
 resource "aws_iam_role" "github_deploy" {
+  count = var.enable_github_deploy ? 1 : 0
+
   name                 = "${local.name}-github-deploy"
   description          = "Assumed by GitHub Actions (${var.github_repository}@main) to push images and deploy the Helm release"
-  assume_role_policy   = data.aws_iam_policy_document.github_deploy_trust.json
+  assume_role_policy   = data.aws_iam_policy_document.github_deploy_trust[0].json
   max_session_duration = 3600
 }
 
@@ -110,7 +114,9 @@ data "aws_iam_policy_document" "github_deploy" {
 }
 
 resource "aws_iam_role_policy" "github_deploy" {
+  count = var.enable_github_deploy ? 1 : 0
+
   name   = "deploy"
-  role   = aws_iam_role.github_deploy.id
+  role   = aws_iam_role.github_deploy[0].id
   policy = data.aws_iam_policy_document.github_deploy.json
 }

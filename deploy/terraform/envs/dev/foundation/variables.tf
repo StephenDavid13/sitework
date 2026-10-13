@@ -20,6 +20,12 @@ variable "parent_zone_id" {
   default     = null
 }
 
+variable "enable_github_deploy" {
+  description = "Create the GitHub Actions OIDC provider and CI deploy role. Set false when an organization policy blocks OIDC providers; deploy from a workstation with `make aws-release` instead."
+  type        = bool
+  default     = true
+}
+
 variable "github_repository" {
   description = "GitHub repository (owner/name) whose main branch may assume the CI deploy role."
   type        = string

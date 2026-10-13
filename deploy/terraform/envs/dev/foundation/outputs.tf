@@ -35,5 +35,5 @@ output "github_oidc_provider_arn" {
 
 output "ci_role_arn" {
   description = "Role for GitHub Actions to assume (aws-actions/configure-aws-credentials role-to-assume)."
-  value       = aws_iam_role.github_deploy.arn
+  value       = var.enable_github_deploy ? aws_iam_role.github_deploy[0].arn : null
 }

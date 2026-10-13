@@ -12,6 +12,13 @@ helm -n sitework history sitework
 ## Deploying
 
 - **Normal path:** merge to `main`. CI runs every check, builds arm64 images tagged with the commit SHA, pushes them to ECR, then runs `make aws-deploy`. That runs `helm upgrade --wait --rollback-on-failure`, with migrations first as a pre-upgrade hook. Finally CI smoke-tests `https://<host>/api/status`.
+- **From a workstation.** Where the AWS organization blocks GitHub OIDC, CI can't deploy. This applies to the current `dev` account. After the pipeline is green, release `HEAD` (which needs a clean working tree):
+
+  ```bash
+  aws login --region ap-southeast-2 && make kubeconfig
+  make aws-release   # build arm64 images, push to ECR (immutable SHA tags), migrate, helm upgrade
+  ```
+
 - **By hand**, for an image that's already pushed:
 
   ```bash

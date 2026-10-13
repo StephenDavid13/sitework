@@ -135,6 +135,9 @@ gh variable set AWS_DEPLOY_ROLE_ARN --body "$(terraform -chdir=deploy/terraform/
 git push                                # CI builds, pushes, migrates and deploys
 ```
 
+If your AWS organization blocks GitHub OIDC providers, set `enable_github_deploy = false` and
+release from your machine with `make aws-release` instead of the `gh variable set` step.
+
 Running it costs about US$8–9 a day. To tear down, run `helm uninstall`, then destroy `platform`, then `infra`. `foundation` stays.
 Day-2 operations (rollbacks, logs, scaling, secrets) are in [docs/runbook.md](docs/runbook.md).
 
