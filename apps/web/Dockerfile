@@ -17,6 +17,10 @@ COPY . .
 RUN pnpm build
 
 FROM node:24-alpine AS runtime
+# The standalone server needs only `node`: drop the bundled package managers (and their CVEs).
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+      /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \

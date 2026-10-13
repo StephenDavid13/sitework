@@ -8,7 +8,7 @@ destroyed between demo sessions without touching DNS delegation, images or the C
 | `bootstrap` | local (`terraform.tfstate`, gitignored) | permanent | S3 state bucket `sitework-tfstate-<account>-<region>` (versioned, SSE-S3, TLS-only, `prevent_destroy`) |
 | `envs/dev/foundation` | `s3://…/dev/foundation.tfstate` | permanent | Route 53 zone for the subdomain (+ NS delegation if the parent is in Route 53), ECR `sitework-api` / `sitework-web`, GitHub OIDC provider, CI role `sitework-dev-github-deploy` |
 | `envs/dev/infra` | `s3://…/dev/infra.tfstate` | disposable | VPC (2 AZs, 1 NAT), EKS `sitework-dev` + managed node group, RDS PostgreSQL 17, ACM certificate, SSM parameter `/sitework/dev/helm-values` |
-| `envs/dev/platform` | `s3://…/dev/platform.tfstate` | disposable | AWS Load Balancer Controller, External Secrets Operator, ExternalDNS, metrics-server (each with a Pod Identity role), namespace `sitework` + CI RBAC |
+| `envs/dev/platform` | `s3://…/dev/platform.tfstate` | disposable | AWS Load Balancer Controller, External Secrets Operator, ExternalDNS, metrics-server (each with a Pod Identity role), CloudWatch Container Insights add-on (container logs + metrics, 14-day log retention), namespace `sitework` + CI RBAC |
 
 All state uses S3 native locking (`use_lockfile = true`); there is no DynamoDB table.
 
@@ -64,17 +64,19 @@ All state uses S3 native locking (`use_lockfile = true`); there is no DynamoDB t
    make kubeconfig && kubectl get nodes
    ```
 
-6. **Wire up CI.** Give the deploy workflow the role ARN (for example as the repository variable
-   `AWS_ROLE_ARN`):
+6. **Wire up CI.** The deploy job in `.github/workflows/ci.yml` is skipped until the repository
+   variable `AWS_DEPLOY_ROLE_ARN` is set:
 
    ```sh
-   terraform -chdir=deploy/terraform/envs/dev/foundation output -raw ci_role_arn
+   gh variable set AWS_DEPLOY_ROLE_ARN --repo StephenDavid13/sitework \
+     --body "$(terraform -chdir=deploy/terraform/envs/dev/foundation output -raw ci_role_arn)"
    ```
 
-   The workflow assumes the role from `main` only, pushes to ECR, runs
-   `aws eks update-kubeconfig --name sitework-dev`, reads the extra values file with
-   `aws ssm get-parameter --name /sitework/dev/helm-values --query Parameter.Value --output text`,
-   and runs `helm upgrade --install sitework ... -n sitework -f values-aws.yaml -f <that file>`.
+   On every push to `main` (after all checks pass) the job assumes the role, builds arm64 images,
+   pushes them to ECR tagged with the commit SHA, runs `make aws-deploy` (which reads
+   `/sitework/dev/helm-values` from SSM and runs `helm upgrade --install … --wait
+   --rollback-on-failure`), then smoke-tests `https://<subdomain>/api/status`. To deploy a commit by
+   hand: `make kubeconfig && IMAGE_TAG=<sha> make aws-deploy`.
 
 ### What CI can do
 
@@ -119,8 +121,9 @@ then retry.
 | ALB (created by the app's Ingress) | 20–25 |
 | RDS db.t4g.micro + 20 GB gp3 | 22 |
 | Public IPv4 addresses (NAT, ALB) | 11 |
-| KMS key (EKS secrets), Secrets Manager secret, CloudWatch logs | 2–5 |
-| **Total** | **~230–250 (≈ US$8 per day)** |
+| KMS key (EKS secrets), Secrets Manager secret | 2 |
+| CloudWatch Container Insights metrics + container logs (small cluster) | 5–15 |
+| **Total** | **~240–265 (≈ US$8–9 per day)** |
 
 Torn down to `foundation` only, it is roughly US$1/month: the hosted zone (US$0.50), ECR storage
 and state bucket storage. Destroy `infra` whenever you are not demoing.
@@ -158,8 +161,10 @@ RDS IAM auth/backups/deletion protection, CMKs for ECR) are the same trade-offs.
   account-specific is committed.
 - **Database credentials**: RDS generates the master password in Secrets Manager and rotates it
   (every 7 days by default). The External Secrets Operator role can read only that one secret.
-  Keep the ExternalSecret `refreshInterval` short and make sure the API reconnects after a
-  rotation.
+  The ExternalSecret refreshes every 5 minutes, the chart mounts the password as a file (which
+  Kubernetes updates in place), and the API re-reads that file every 5 minutes for new
+  connections, so a rotation needs no restart. Expect at most ~10 minutes in which brand-new
+  connections could fail after a rotation; existing pooled connections are unaffected.
 - **Pod readiness gates** are enabled on the `sitework` namespace, so pods turn Ready only once
   the ALB sees them healthy. That makes `helm --wait` and rolling updates zero-downtime.
 - **Versions** are pinned in `versions.tf` (providers, `~>` on the minor), the module blocks

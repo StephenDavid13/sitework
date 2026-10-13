@@ -1,0 +1,257 @@
+name: CI/CD
+
+# Every PR and push runs the full quality gate. Pushes to main then build arm64 images,
+# push them to ECR and `helm upgrade` the EKS release, once AWS is wired up (see
+# deploy/terraform/README.md; the deploy job is skipped until AWS_DEPLOY_ROLE_ARN is set).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  NEXT_TELEMETRY_DISABLED: "1"
+  HELM_VERSION: v4.3.0
+  KIND_VERSION: v0.33.0
+  KUBECONFORM_VERSION: v0.8.0
+  TERRAFORM_VERSION: 1.16.5
+
+jobs:
+  api:
+    name: API · build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: apps/api/global.json
+      # Unit tests plus integration tests against a real PostGIS container (Testcontainers).
+      - run: dotnet test
+        working-directory: apps/api
+
+  web:
+    name: Web · lint, typecheck, test, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: apps/web/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm format:check
+      - run: pnpm test
+      - run: pnpm build
+
+  contract:
+    name: API contract is up to date
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: apps/api/global.json
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: apps/web/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/web
+      # Regenerates openapi.json from the API and the TypeScript client types from it,
+      # then fails if either differs from what's committed.
+      - run: make contract-check
+
+  deploy-config:
+    name: Terraform and Helm · validate and scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive deploy/terraform
+      - run: make tf-validate
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Install kubeconform
+        run: |
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+      - run: make helm-lint
+      - name: Render the chart for scanning (Trivy's Helm scanner skips hooks)
+        run: |
+          mkdir -p rendered
+          helm template sitework deploy/helm/sitework -n sitework -f deploy/helm/sitework/values-local.yaml > rendered/local.yaml
+          helm template sitework deploy/helm/sitework -n sitework \
+            -f deploy/helm/sitework/values-aws.yaml -f deploy/helm/sitework/ci/aws-test-values.yaml > rendered/aws.yaml
+      - name: Scan Terraform and Kubernetes manifests
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          skip-dirs: "**/.terraform,**/node_modules"
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+  e2e:
+    name: End-to-end on kind (real Helm chart)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: [api, web]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          version: ${{ env.KIND_VERSION }}
+          config: deploy/local/kind-config.yaml
+          cluster_name: sitework
+      - name: Build, load, deploy and smoke-test
+        run: make kind-up kind-images kind-load kind-deploy kind-smoke
+      - name: Scan the API image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sitework-api:local
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan the web image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sitework-web:local
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: apps/web/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/web
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: pnpm test:e2e
+        working-directory: apps/web
+        env:
+          E2E_BASE_URL: http://sitework.localhost:8080
+      - name: Cluster diagnostics
+        if: failure()
+        run: |
+          kubectl --context kind-sitework -n sitework get pods,jobs,events -o wide || true
+          kubectl --context kind-sitework -n sitework logs deploy/sitework-api --tail=200 || true
+          kubectl --context kind-sitework -n sitework logs deploy/sitework-web --tail=200 || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 14
+
+  deploy:
+    name: Deploy to EKS (dev)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != ''
+    needs: [api, web, contract, deploy-config, e2e]
+    # Native arm64 builds for the Graviton nodes.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    # No `environment:` here: the deploy role trusts only `repo:<owner>/<repo>:ref:refs/heads/main`.
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    env:
+      AWS_REGION: ap-southeast-2
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Ensure the AWS CLI is available
+        run: |
+          if ! command -v aws >/dev/null; then
+            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscli.zip
+            unzip -q /tmp/awscli.zip -d /tmp && sudo /tmp/aws/install
+          fi
+          aws --version
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # ECR tags are immutable, so a re-run of the same commit reuses the images it already pushed.
+      - id: existing
+        name: Check for already-pushed images
+        run: |
+          for repo in sitework-api sitework-web; do
+            if aws ecr describe-images --repository-name "$repo" --image-ids imageTag="$IMAGE_TAG" >/dev/null 2>&1; then
+              echo "${repo#sitework-}=true" >> "$GITHUB_OUTPUT"
+            fi
+          done
+      - if: steps.existing.outputs.api != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/api
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/sitework-api:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+      - if: steps.existing.outputs.web != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/web
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/sitework-web:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - run: aws eks update-kubeconfig --region "$AWS_REGION" --name sitework-dev
+      # Migrations run first as a Helm hook; a failed rollout rolls back automatically.
+      - run: make aws-deploy IMAGE_TAG="$IMAGE_TAG"
+      - name: Smoke test through the load balancer
+        run: |
+          host=$(helm get values sitework -n sitework -o json | jq -r .ingress.host)
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "https://${host}/api/status" | tee /dev/stderr \
+            | grep -q '"database":"Healthy"'
+          curl -fsS --retry 5 --retry-delay 3 -o /dev/null "https://${host}/jobs"
+          echo "Deployed ${IMAGE_TAG} to https://${host}" >> "$GITHUB_STEP_SUMMARY"

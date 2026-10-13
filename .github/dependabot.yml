@@ -1,0 +1,46 @@
+# Weekly dependency updates, grouped per ecosystem so they arrive as a handful of PRs
+# that CI fully verifies (including the kind end-to-end run).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+    groups:
+      web:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: nuget
+    directory: /apps/api
+    schedule:
+      interval: weekly
+    groups:
+      api:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories: [/apps/api, /apps/web]
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: terraform
+    directories:
+      - /deploy/terraform/bootstrap
+      - /deploy/terraform/envs/dev/foundation
+      - /deploy/terraform/envs/dev/infra
+      - /deploy/terraform/envs/dev/platform
+    schedule:
+      interval: weekly
+    groups:
+      terraform:
+        patterns: ["*"]

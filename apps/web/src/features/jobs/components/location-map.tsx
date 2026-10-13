@@ -55,7 +55,15 @@ export function LocationMap({
       initialViewState={{ ...(value ?? DEFAULT_CENTER), zoom: value ? 14 : 10 }}
       style={{ width: "100%", height: "100%" }}
       cursor={onChange ? "crosshair" : "grab"}
-      onLoad={() => setLoaded(true)}
+      onLoad={(event) => {
+        setLoaded(true);
+        // MapLibre opens the compact attribution on load; start it collapsed on this small map
+        // (the ⓘ button keeps the OpenStreetMap credit one click away).
+        event.target
+          .getContainer()
+          .querySelector(".maplibregl-compact-show")
+          ?.classList.remove("maplibregl-compact-show");
+      }}
       onClick={
         onChange
           ? (event) =>

@@ -10,6 +10,9 @@ resource "kubernetes_namespace_v1" "app" {
       # Pods only turn Ready once the ALB target group reports them healthy, so
       # `helm --wait` and rolling updates do not drop traffic.
       "elbv2.k8s.aws/pod-readiness-gate-inject" = "enabled"
+      # Reject privileged or root pods outright (the chart already meets "restricted").
+      "pod-security.kubernetes.io/enforce"         = "restricted"
+      "pod-security.kubernetes.io/enforce-version" = "latest"
     }
   }
 }

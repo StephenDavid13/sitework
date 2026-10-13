@@ -4,6 +4,8 @@ An API-driven app for coordinating field work across many sites. Each record is 
 
 > "Sitework" and "Job" are working names. Renaming the domain (e.g. *Inspection*, *Work Order*, *Site Visit*) changes nothing structural.
 
+> **Status (2026-10-13):** milestones 0–6 are built and verified locally. That covers the app, the tests, the Helm chart on kind, Terraform (validated), CI/CD and docs. The AWS apply is waiting on the subdomain and AWS CLI access (§13). Where implementation departed from this plan, the text below has been updated and the reasoning recorded in [docs/adr](docs/adr).
+
 ---
 
 ## 1. Scope and assumptions
@@ -31,7 +33,7 @@ An API-driven app for coordinating field work across many sites. Each record is 
 | `description` | string (≤ 4000) | optional |
 | `status` | enum | see lifecycle below; changed **only** via transitions |
 | `priority` | enum | `Low`, `Normal`, `High`, `Urgent` |
-| `location` | `{ latitude, longitude }` | required; stored as `geography(Point, 4326)` with a GiST index |
+| `location` | `{ latitude, longitude }` | required; stored as `geometry(Point, 4326)` with a GiST index. Radius queries use spheroid distance functions ([ADR 0003](docs/adr/0003-postgis-geometry.md)) |
 | `siteName` / `address` | string | optional, free text (geocoding is a stretch goal) |
 | `assignee` | string | optional free text (no user model yet) |
 | `scheduledFor` | timestamptz | required to enter `Scheduled` |
@@ -96,7 +98,7 @@ Key decisions:
 - **Same origin for UI and API.** The ingress routes `/api/*` to the .NET service and everything else to Next.js. That means no CORS in production and nothing environment-specific baked into the Next.js build: the browser calls the relative path `/api/...`. Locally, Next.js `rewrites` proxy `/api` to `localhost:5080`.
 - **Client-side data fetching with TanStack Query.** This is where the brief's loading/error/dynamic-state requirements live. Pages are thin server components that render client components.
 - **The OpenAPI contract is the source of truth.** The .NET API emits `openapi.json` at build time, and the web app generates its TypeScript types from it. CI fails if the two drift.
-- **Database migrations run as a Helm hook Job** (an EF Core migration bundle) before new API pods roll out, never at app startup.
+- **Database migrations run as a Helm hook Job** (the API image with `--migrate`) before new API pods roll out, never at app startup ([ADR 0004](docs/adr/0004-migrations-as-helm-hook.md)).
 - **HTTPS on a subdomain via its own Route 53 zone.** Terraform creates a hosted zone just for the subdomain, delegates it from the parent domain, and issues a DNS-validated ACM certificate. In-cluster, ExternalDNS points the subdomain at whatever ALB the Load Balancer Controller creates, so Terraform never needs to know the ALB's name. ExternalDNS is only allowed to touch the subdomain zone, never the parent domain.
 
 ---
@@ -131,10 +133,10 @@ Versions are the latest stable releases as of 2026-10-13, and they get pinned ex
 | Validation | Built-in .NET 10 minimal-API validation (`AddValidation()` + DataAnnotations), plus domain guards in the lifecycle | No extra dependency |
 | Errors | `AddProblemDetails()` + an exception handler, giving RFC 9457 ProblemDetails everywhere | The UI has a single error shape to parse |
 | Data | **EF Core 10** + **Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3** + **.NetTopologySuite** plugin | PostGIS `geography` points, `ST_DWithin` (radius) and envelope (bbox) queries translated by LINQ |
-| Migrations | `dotnet-ef` (local tool manifest) → `dotnet ef migrations bundle` for the Helm hook Job | One self-contained migration binary per release |
+| Migrations | `dotnet-ef` (local tool manifest) to author; the API image's `--migrate` command applies them in the Helm hook Job | No extra image to build; exits non-zero on failure |
 | API docs | **Microsoft.AspNetCore.OpenApi 10** (build-time doc generation) + **Scalar.AspNetCore 2** UI at `/scalar` | Built-in generator plus a readable UI |
 | Health | `AddHealthChecks()` + EF `AddDbContextCheck` → `/health/live`, `/health/ready` | Kubernetes probes |
-| Logging | Built-in JSON console logger (stdout) | CloudWatch / any log shipper can parse it; Serilog not needed |
+| Logging and telemetry | Built-in JSON console logger (stdout, shipped by Container Insights); OpenTelemetry traces and metrics over OTLP when configured | No Serilog needed |
 | Tests | **xUnit v3** + **Testcontainers.PostgreSql 4** + `WebApplicationFactory` + **Shouldly** | Real PostGIS in tests. *Avoid FluentAssertions v8+ (commercial licence).* |
 
 ### Infrastructure and delivery
@@ -143,7 +145,7 @@ Versions are the latest stable releases as of 2026-10-13, and they get pinned ex
 |---|---|
 | IaC | **Terraform 1.16** · `hashicorp/aws` 6.x · `hashicorp/helm` 3.x · community modules `terraform-aws-modules/{vpc 6.x, eks 21.x, rds 7.x}` |
 | State | S3 backend with **native S3 locking** (`use_lockfile = true`, so no DynamoDB table), created by a one-off `bootstrap` stack |
-| Cluster | **EKS** (latest standard-support Kubernetes version), managed node group of 2× **t4g.medium (Graviton/arm64)**. Arm64 matches the Apple-silicon dev machine and native arm64 CI runners |
+| Cluster | **EKS 1.37** (latest in standard support), managed node group of 2× **t4g.medium (Graviton/arm64)**. Arm64 matches the Apple-silicon dev machine and native arm64 CI runners |
 | Ingress | **AWS Load Balancer Controller** → one internet-facing ALB, path routing, HTTPS on port 443 with HTTP→HTTPS redirect |
 | DNS / TLS | **Route 53** hosted zone for the subdomain (delegated from the parent domain) + **ACM** certificate (DNS-validated, auto-renewing) + **ExternalDNS** (Pod Identity, scoped to that one zone) |
 | Secrets | RDS-managed master password in **Secrets Manager** → **External Secrets Operator** (via **EKS Pod Identity**) → Kubernetes Secret |
@@ -233,8 +235,7 @@ Accessibility: the list is the accessible equivalent of the map, status is conve
 │   │   ├── src/Sitework.Api/          # Program.cs, Features/Jobs, Domain, Data (EF), Migrations
 │   │   ├── tests/Sitework.Api.UnitTests/         # lifecycle table, validation
 │   │   ├── tests/Sitework.Api.IntegrationTests/  # Testcontainers + WebApplicationFactory
-│   │   ├── Dockerfile                 # sdk → aspnet:10.0-noble-chiseled (non-root)
-│   │   ├── Dockerfile.migrations      # EF migration bundle image
+│   │   ├── Dockerfile                 # sdk → aspnet:10.0-noble-chiseled (non-root); `--migrate` mode for the hook
 │   │   └── global.json
 │   └── web/
 │       ├── src/app/                   # routes
@@ -249,10 +250,12 @@ Accessibility: the list is the accessible equivalent of the map, status is conve
 │       ├── modules/                   # thin wrappers: network, cluster, database, registry, ci-oidc
 │       └── envs/dev/
 │           ├── infra/                 # VPC, EKS, RDS, ECR, IAM
-│           └── platform/              # Helm releases: LB controller, External Secrets, metrics-server
+│           └── platform/              # Helm releases: LB controller, External Secrets, ExternalDNS, metrics-server, Container Insights
+├── deploy/local/                      # kind + Traefik + PostGIS for running the chart locally
 ├── .github/workflows/                 # ci.yml, deploy.yml
 ├── docker-compose.yml                 # postgis + api + web
 ├── Makefile                           # dev, test, gen-api, kind-up, helm-local, tf-plan …
+├── docs/runbook.md                    # day-2 operations
 └── docs/adr/                          # short decision records for the choices above
 ```
 
@@ -278,7 +281,8 @@ The single chart `deploy/helm/sitework` contains:
     - The ExternalDNS hostname annotation.
     - An optional `inbound-cidrs` allowlist.
   - A `values.schema.json` validates all of them.
-- **Deploy command:** `helm upgrade --install sitework deploy/helm/sitework -f values-aws.yaml --set image.tag=$GIT_SHA --atomic --wait`.
+- **Deploy command** (`make aws-deploy`): `helm upgrade --install sitework deploy/helm/sitework -n sitework -f values-aws.yaml -f <SSM values> --set-string image.tag=$GIT_SHA --wait --rollback-on-failure --timeout 10m`. Helm 4 renamed `--atomic` to `--rollback-on-failure`.
+- **Database password** is mounted as a file and re-read by the API, so RDS's 7-day rotation needs no restart ([ADR 0005](docs/adr/0005-database-credentials.md)).
 
 ---
 
@@ -294,7 +298,7 @@ The single chart `deploy/helm/sitework` contains:
 | CI identity | GitHub OIDC provider plus a deploy role for your personal repo. The role trusts only `repo:<your-user>/<repo>:ref:refs/heads/main` and can push to ECR and deploy to the app namespace. If your account already has a GitHub OIDC provider (AWS allows only one), Terraform reuses it via a data source; `create_github_oidc_provider = false` switches this |
 | DNS / TLS | Route 53 hosted zone for the subdomain. Delegation depends on where the parent domain lives: **(a)** a Route 53 zone in this account, so Terraform adds the NS records itself; or **(b)** elsewhere, so Terraform outputs 4 NS records for you to add at your DNS provider once. Plus an ACM certificate validated in that zone |
 
-**Cost, roughly:** about **US$180–220/month** while running (EKS control plane ~$73, NAT ~$35–45, 2 nodes ~$50, ALB ~$20, RDS ~$15, hosted zone $0.50). Plan to `terraform destroy` between demo sessions; the whole environment comes back in about 20 minutes. Keep the subdomain zone and certificate in the `bootstrap` stack so they survive a destroy and the delegation never needs redoing.
+**Cost, roughly:** about **US$180–220/month** while running (EKS control plane ~$73, NAT ~$35–45, 2 nodes ~$50, ALB ~$20, RDS ~$15, hosted zone $0.50). Plan to `terraform destroy` between demo sessions; the whole environment comes back in about 20 minutes. The subdomain zone lives in the long-lived `foundation` stack, so it survives a destroy and the delegation never needs redoing. The certificate is in `infra` because it's free and re-validates automatically ([ADR 0006](docs/adr/0006-terraform-stacks-by-lifetime.md)).
 
 ### Running publicly without logins
 Anyone who finds the URL can create, edit and delete jobs. Accepted for now, with cheap safeguards:
@@ -335,15 +339,15 @@ Terraform is **applied manually** (plan in CI, apply by a human) for safety.
 
 ## 11. Milestones
 
-| # | Milestone | Done when | Est. |
-|---|---|---|---|
-| 0 | **Environment and scaffold** | Tools installed (§12); monorepo skeleton; Compose brings up PostGIS; `make dev` runs API and web with a hello-world round trip | 0.5 d |
-| 1 | **API** | Domain + lifecycle + EF/PostGIS + all endpoints + ProblemDetails + OpenAPI/Scalar + seeder; unit and integration tests green | 1.5 d |
-| 2 | **Web** | Generated client; list + map + filters; create/edit with map picker; detail + transitions + history; all §6 states covered by tests; Playwright journey green | 2 d |
-| 3 | **Containers and Helm (local)** | Both Dockerfiles (non-root, small); chart deploys to kind with Traefik; migrations hook runs; `helm lint`/kubeconform clean | 1 d |
-| 4 | **AWS via Terraform** | Bootstrap (state bucket, subdomain zone, cert) → infra → platform apply cleanly from zero; app served at `https://<subdomain>` with a valid certificate and HTTP redirecting to HTTPS; secrets flow through ESO; `destroy` is clean | 1.5 d |
-| 5 | **CI/CD** | PR checks and main-branch deploy via OIDC working end to end | 0.5 d |
-| 6 | **Polish** | README (quick start, architecture, trade-offs), ADRs, demo seed, screenshots | 0.5 d |
+| # | Milestone | Done when | Est. | Status |
+|---|---|---|---|---|
+| 0 | **Environment and scaffold** | Tools installed (§12); monorepo skeleton; Compose brings up PostGIS; `make dev` runs API and web with a hello-world round trip | 0.5 d | ✅ Done |
+| 1 | **API** | Domain + lifecycle + EF/PostGIS + all endpoints + ProblemDetails + OpenAPI/Scalar + seeder; unit and integration tests green | 1.5 d | ✅ Done |
+| 2 | **Web** | Generated client; list + map + filters; create/edit with map picker; detail + transitions + history; all §6 states covered by tests; Playwright journey green | 2 d | ✅ Done |
+| 3 | **Containers and Helm (local)** | Both Dockerfiles (non-root, small); chart deploys to kind with Traefik; migrations hook runs; `helm lint`/kubeconform clean | 1 d | ✅ Done |
+| 4 | **AWS via Terraform** | Bootstrap (state bucket) → foundation (zone, ECR, CI role) → infra → platform apply cleanly from zero; app served at `https://<subdomain>` with a valid certificate and HTTP redirecting to HTTPS; secrets flow through ESO; `destroy` is clean | 1.5 d | ✅ Code done, apply pending (§13) |
+| 5 | **CI/CD** | PR checks and main-branch deploy via OIDC working end to end | 0.5 d | ✅ Checks done; the deploy job activates once AWS is applied |
+| 6 | **Polish** | README (quick start, architecture, trade-offs), ADRs, demo seed, screenshots | 0.5 d | ✅ Done |
 
 **Stretch goals, in priority order:**
 1. Address search and reverse geocoding (Photon/Nominatim, proxied through the API).
