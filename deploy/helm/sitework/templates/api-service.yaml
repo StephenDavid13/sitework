@@ -1,0 +1,20 @@
+{{- $component := dict "root" $ "component" "api" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sitework.api.fullname" . }}
+  labels:
+    {{- include "sitework.labels" $component | nindent 4 }}
+  {{- with .Values.api.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "sitework.selectorLabels" $component | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

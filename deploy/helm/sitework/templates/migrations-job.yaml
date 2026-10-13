@@ -1,0 +1,87 @@
+{{- /*
+Database migrations, run before any new API pod rolls out.
+
+Pre-install/pre-upgrade hooks run in ascending weight order, each one created and (for Jobs)
+waited on before the next, and all of them before the release's regular resources exist:
+
+  -30  ServiceAccount for this Job (regular resources, e.g. the API's, do not exist yet)
+  -20  SecretStore     (only with database.externalSecret.enabled)
+  -10  ExternalSecret  (only with database.externalSecret.enabled)
+    0  this Job
+
+With External Secrets the Job's pod waits in CreateContainerConfigError, retried by the
+kubelet, until ESO has written the database Secret; activeDeadlineSeconds bounds that wait.
+A failed Job is kept for `kubectl logs` and replaced on the next upgrade.
+*/ -}}
+{{- if .Values.migrations.enabled }}
+{{- $component := dict "root" $ "component" "migrations" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "sitework.migrations.fullname" . }}
+  labels:
+    {{- include "sitework.labels" $component | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-30"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "sitework.migrations.fullname" . }}
+  labels:
+    {{- include "sitework.labels" $component | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "sitework.labels" $component | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "sitework.migrations.fullname" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        {{- toYaml .Values.api.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrations
+          image: {{ include "sitework.image" (dict "root" $ "repository" .Values.api.image.repository) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--migrate"]
+          env:
+            {{- include "sitework.api.env" . | nindent 12 }}
+            - name: SeedDemoData
+              value: {{ .Values.migrations.seedDemoData | quote }}
+            {{- with .Values.api.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.api.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- include "sitework.db.volumeMount" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        {{- include "sitework.db.volume" . | nindent 8 }}
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

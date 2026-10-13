@@ -1,0 +1,48 @@
+# Traefik for the local kind cluster (official chart https://traefik.github.io/charts).
+# Installed by `make kind-up`; the chart version is pinned in deploy/local/local.mk.
+# Host :8080 -> kind node :30080 (kind-config.yaml) -> this NodePort -> the "web" entrypoint.
+
+deployment:
+  replicas: 1
+
+ingressClass:
+  enabled: true
+  name: traefik
+  # Explicit className in values-local.yaml; don't claim class-less Ingresses.
+  isDefaultClass: false
+
+providers:
+  kubernetesIngress:
+    enabled: true
+    # A NodePort Service has no load balancer status to copy onto Ingresses.
+    publishedService:
+      enabled: false
+  # Only standard Ingress objects are used locally.
+  kubernetesCRD:
+    enabled: false
+
+ports:
+  web:
+    nodePort: 30080
+  # No TLS locally.
+  websecure:
+    expose:
+      default: false
+
+service:
+  spec:
+    type: NodePort
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+accessLog:
+  enabled: true
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi

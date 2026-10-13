@@ -1,0 +1,39 @@
+# kind + Traefik + in-cluster PostGIS (deploy/local). Deploy with `make kind-deploy`.
+# Images are built locally and loaded into the node with `kind load docker-image`.
+
+image:
+  registry: ""
+  tag: local
+  pullPolicy: Never
+
+api:
+  replicas: 1
+  # Traefik's pod IP is the proxy whose X-Forwarded-For the API trusts (kind's pod CIDR).
+  trustedProxyNetworks:
+    - 10.244.0.0/16
+  autoscaling:
+    enabled: false
+  pdb:
+    enabled: false
+
+web:
+  replicas: 1
+  autoscaling:
+    enabled: false
+  pdb:
+    enabled: false
+
+ingress:
+  className: traefik
+  # *.localhost resolves to loopback; kind maps host port 8080 to Traefik.
+  host: sitework.localhost
+  publicUrl: http://sitework.localhost:8080
+
+database:
+  # deploy/local/postgis.yaml
+  host: postgis.sitework.svc.cluster.local
+  sslMode: Disable
+  existingSecret: sitework-db
+
+migrations:
+  seedDemoData: true

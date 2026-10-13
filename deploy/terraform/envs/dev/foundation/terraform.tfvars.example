@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is read automatically.
+
+# The subdomain the app is served on. It gets its own Route 53 hosted zone.
+subdomain = "sitework.example.com"
+
+# Parent domain in Route 53 in this account? Put its hosted zone ID here and the
+# NS delegation is created for you. Otherwise leave null and add the
+# `name_servers` output as an NS record at your DNS provider.
+parent_zone_id = null
+
+# Repository whose main branch may assume the CI deploy role.
+github_repository = "StephenDavid13/sitework"
+
+# AWS allows one GitHub OIDC provider per account. If one already exists
+# (`aws iam list-open-id-connect-providers`), paste its ARN here; null creates it.
+github_oidc_provider_arn = null

@@ -1,0 +1,194 @@
+# Default values for the sitework chart. Environment files layer on top of these:
+#   values-local.yaml  kind + Traefik + in-cluster PostGIS (deploy/local)
+#   values-aws.yaml    EKS + ALB + External Secrets; account-specific keys come from an extra
+#                      values file Terraform writes to SSM (see ci/aws-test-values.yaml)
+# values.schema.json validates the merged result.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # Prefixed to each repository when set, e.g. 123456789012.dkr.ecr.ap-southeast-2.amazonaws.com.
+  # "" uses the repository as-is (images loaded into kind / a local Docker daemon).
+  registry: ""
+  # Shared by both images. Defaults to the chart appVersion; CI sets the git SHA.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+api:
+  image:
+    repository: sitework-api
+  # Ignored when autoscaling.enabled (the HPA owns the replica count).
+  replicas: 2
+  # ASPNETCORE_ENVIRONMENT. Keep "Production" in-cluster: Development reads a localhost
+  # connection string from appsettings.Development.json.
+  environment: Production
+  # CIDRs of reverse proxies whose X-Forwarded-For is trusted (per-client-IP rate limiting).
+  # On AWS: the VPC CIDR (ALB nodes). On kind: the pod CIDR (Traefik).
+  trustedProxyNetworks: []
+  # OpenTelemetry traces and metrics go to this OTLP endpoint (e.g. an ADOT/OTel collector) when set.
+  telemetry:
+    otlpEndpoint: ""
+  # Optional overrides of the API's built-in limits (600 requests / 60 writes per minute per IP).
+  rateLimiting:
+    requestsPerMinute: null
+    writesPerMinute: null
+  # Extra container env vars (Kubernetes EnvVar objects).
+  extraEnv: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+  # Seconds the container keeps serving after termination starts, so the load balancer can
+  # deregister the pod before it stops accepting connections. 0 disables the preStop hook.
+  preStopSleepSeconds: 0
+  service:
+    # e.g. per-target-group ALB health check settings on AWS.
+    annotations: {}
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  podAnnotations: {}
+  podLabels: {}
+  # The chiseled .NET image runs as the non-root "app" user (UID 1654).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1654
+    runAsGroup: 1654
+    # Group-owns the mounted database password file (mode 0440) so the app can read it.
+    fsGroup: 1654
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1654
+    runAsGroup: 1654
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+web:
+  image:
+    repository: sitework-web
+  replicas: 2
+  extraEnv: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+  preStopSleepSeconds: 0
+  service:
+    annotations: {}
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  podAnnotations: {}
+  podLabels: {}
+  # node:24-alpine's "node" user (UID 1000).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+ingress:
+  enabled: true
+  # "alb" (AWS Load Balancer Controller) or "traefik" (kind).
+  className: ""
+  # One host serves both apps; "" matches any host.
+  host: ""
+  # Base URL printed in the install notes. Defaults to https://<host> with a certificate, else http://<host>.
+  publicUrl: ""
+  # ACM certificate for the ALB HTTPS listener. Adds alb.ingress.kubernetes.io/certificate-arn.
+  certificateArn: ""
+  # Adds external-dns.alpha.kubernetes.io/hostname=<host> (ExternalDNS also reads the rules).
+  externalDns: false
+  # Optional client allowlist (alb.ingress.kubernetes.io/inbound-cidrs), e.g. to lock a demo
+  # to a few IPs. Empty = open to the internet.
+  inboundCidrs: []
+  # Prefixes served by the API; everything else goes to the web app. Same origin, so no CORS.
+  apiPaths:
+    - /api
+    - /scalar
+    - /openapi
+  annotations: {}
+
+database:
+  host: ""
+  port: 5432
+  name: sitework
+  # Npgsql SSL mode: Disable | Allow | Prefer | Require | VerifyCA | VerifyFull.
+  sslMode: Prefer
+  # Existing Secret with `username` and `password` keys. Mutually exclusive with externalSecret.
+  # Unset (and no externalSecret): a Secret named <fullname>-db must already exist.
+  existingSecret: ""
+  # Sync the credentials from AWS Secrets Manager with External Secrets Operator into a Secret
+  # named <fullname>-db. The ESO controller authenticates itself (EKS Pod Identity), so the
+  # SecretStore carries no auth block.
+  externalSecret:
+    enabled: false
+    # ARN (or name) of the secret; RDS-managed master secrets hold JSON {username, password}.
+    secretArn: ""
+    region: ""
+    # RDS rotates its managed password; keep the copy in the cluster fresh.
+    refreshInterval: 5m
+
+migrations:
+  # Pre-install/pre-upgrade hook Job: the API image with --migrate.
+  enabled: true
+  # Seed demo jobs when the jobs table is empty.
+  seedDemoData: false
+  backoffLimit: 2
+  # Covers the wait for the database Secret on a first install with External Secrets.
+  activeDeadlineSeconds: 600
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi

@@ -1,0 +1,18 @@
+# Local single-node cluster for the Sitework chart. Created by `make kind-up`.
+# http://sitework.localhost:8080 -> host port 8080 -> node port 30080 -> Traefik (traefik-values.yaml).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: sitework
+networking:
+  # Matches values-local.yaml api.trustedProxyNetworks (Traefik's pod IP is the proxy the API trusts).
+  podSubnet: 10.244.0.0/16
+nodes:
+  - role: control-plane
+    # Kubernetes 1.37 to match EKS (deploy/terraform kubernetes_version); kind v0.33's node image.
+    image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 8080
+        # Loopback only: the demo stack is not exposed to the local network.
+        listenAddress: 127.0.0.1
+        protocol: TCP

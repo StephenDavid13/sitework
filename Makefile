@@ -11,7 +11,7 @@ CONTRACT_FILES := $(API_DIR)/openapi.json $(WEB_DIR)/src/lib/api/schema.d.ts
 
 .PHONY: help
 help: ## List available targets
-	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
 # --- Setup & local dev -------------------------------------------------------
 
@@ -77,6 +77,10 @@ test-api: ## API unit + integration tests (needs Docker for Testcontainers)
 test-web: ## Web component tests
 	cd $(WEB_DIR) && pnpm test
 
+.PHONY: e2e
+e2e: ## Playwright end-to-end tests (E2E_BASE_URL defaults to http://localhost:3000)
+	cd $(WEB_DIR) && pnpm test:e2e
+
 .PHONY: lint
 lint: ## Lint, typecheck and format-check the web app
 	cd $(WEB_DIR) && pnpm lint && pnpm typecheck && pnpm format:check
@@ -84,3 +88,24 @@ lint: ## Lint, typecheck and format-check the web app
 .PHONY: check
 check: lint test contract-check ## Everything CI runs
 	cd $(WEB_DIR) && pnpm build
+
+# --- Deploy to EKS -----------------------------------------------------------
+# CI runs this after pushing images; humans can too (needs `make kubeconfig`).
+
+HELM_RELEASE   ?= sitework
+HELM_NAMESPACE ?= sitework
+HELM_VALUES_PARAM ?= /sitework/dev/helm-values
+
+.PHONY: aws-deploy
+aws-deploy: ## Deploy the chart to EKS: IMAGE_TAG=<git sha> make aws-deploy
+	@test -n "$(IMAGE_TAG)" || { echo "Set IMAGE_TAG (the pushed image tag, e.g. the git SHA)" >&2; exit 1; }
+	@set -euo pipefail; values=$$(mktemp); trap 'rm -f "$$values"' EXIT; \
+	aws ssm get-parameter --region $(AWS_REGION) --name $(HELM_VALUES_PARAM) --query Parameter.Value --output text > "$$values"; \
+	helm upgrade --install $(HELM_RELEASE) deploy/helm/sitework --namespace $(HELM_NAMESPACE) \
+		-f deploy/helm/sitework/values-aws.yaml -f "$$values" \
+		--set-string image.tag=$(IMAGE_TAG) \
+		--wait --rollback-on-failure --timeout 10m
+
+.PHONY: aws-reset-demo-data
+aws-reset-demo-data: ## Wipe and reseed the demo data on EKS (runs inside a live API pod)
+	kubectl --namespace $(HELM_NAMESPACE) exec deploy/$(HELM_RELEASE)-api -- dotnet Sitework.Api.dll --reset-demo-data

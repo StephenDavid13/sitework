@@ -1,0 +1,136 @@
+# In-cluster PostGIS for the local kind loop only (AWS uses RDS). Applied by `make kind-up`.
+# Storage is an emptyDir: data lasts as long as the pod; the migration hook recreates the schema
+# and seeds demo data on the next `make kind-deploy`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sitework
+  labels:
+    app.kubernetes.io/part-of: sitework
+    # Everything in the namespace, the chart included, must meet the "restricted" Pod Security Standard.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+# Local-only credentials (the same as docker-compose.yml). Used by the chart via
+# values-local.yaml database.existingSecret.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sitework-db
+  namespace: sitework
+  labels:
+    app.kubernetes.io/part-of: sitework
+type: Opaque
+stringData:
+  username: sitework
+  password: sitework
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgis
+  namespace: sitework
+  labels:
+    app.kubernetes.io/name: postgis
+    app.kubernetes.io/part-of: sitework
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgis
+        app.kubernetes.io/part-of: sitework
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        # The image's "postgres" user; the entrypoint runs initdb as it directly.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgis
+          # Multi-arch build of the official PostGIS image (postgis/postgis is amd64-only).
+          image: imresamu/postgis:17-3.5
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: sitework
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: sitework-db
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sitework-db
+                  key: password
+            # A subdirectory, so initdb gets an empty directory it owns.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "sitework", "-d", "sitework", "-h", "127.0.0.1"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "sitework", "-d", "sitework", "-h", "127.0.0.1"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgis
+  namespace: sitework
+  labels:
+    app.kubernetes.io/name: postgis
+    app.kubernetes.io/part-of: sitework
+spec:
+  selector:
+    app.kubernetes.io/name: postgis
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres

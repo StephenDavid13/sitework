@@ -1,0 +1,52 @@
+{{- if .Values.ingress.enabled }}
+{{- $annotations := deepCopy (default (dict) .Values.ingress.annotations) }}
+{{- with .Values.ingress.certificateArn }}
+{{- $_ := set $annotations "alb.ingress.kubernetes.io/certificate-arn" . }}
+{{- end }}
+{{- with .Values.ingress.inboundCidrs }}
+{{- $_ := set $annotations "alb.ingress.kubernetes.io/inbound-cidrs" (join "," .) }}
+{{- end }}
+{{- if and .Values.ingress.externalDns .Values.ingress.host }}
+{{- $_ := set $annotations "external-dns.alpha.kubernetes.io/hostname" .Values.ingress.host }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "sitework.fullname" . }}
+  labels:
+    {{- include "sitework.labels" (dict "root" $ "component" "ingress") | nindent 4 }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    # One host, same origin: the browser calls /api/... relative to the page.
+    {{- if .Values.ingress.host }}
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+    {{- else }}
+    - http:
+    {{- end }}
+        paths:
+          # API prefixes first (the ALB evaluates paths in order; Traefik prefers the longest).
+          {{- range .Values.ingress.apiPaths }}
+          - path: {{ . }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "sitework.api.fullname" $ }}
+                port:
+                  name: http
+          {{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "sitework.web.fullname" . }}
+                port:
+                  name: http
+{{- end }}

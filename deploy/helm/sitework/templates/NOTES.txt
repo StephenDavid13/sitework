@@ -1,0 +1,46 @@
+{{- $ns := .Release.Namespace -}}
+{{- $scheme := ternary "https" "http" (not (empty .Values.ingress.certificateArn)) -}}
+{{- $url := default (printf "%s://%s" $scheme .Values.ingress.host) .Values.ingress.publicUrl | trimSuffix "/" -}}
+Sitework (image tag {{ include "sitework.imageTag" . }}) is deployed as release "{{ .Release.Name }}" in namespace "{{ $ns }}".
+{{- if not .Values.database.host }}
+
+WARNING: database.host is empty, so the API cannot reach a database. Set it in your values.
+{{- end }}
+{{ if .Values.ingress.enabled }}
+{{- if or .Values.ingress.host .Values.ingress.publicUrl }}
+App:       {{ $url }}/
+API docs:  {{ $url }}/scalar/
+Status:    {{ $url }}/api/status
+{{- else }}
+The Ingress matches any host. Find its address with:
+  kubectl -n {{ $ns }} get ingress {{ include "sitework.fullname" . }}
+{{- end }}
+{{- if eq .Values.ingress.className "alb" }}
+
+The ALB takes a few minutes to provision on a first install, and ExternalDNS then
+publishes the DNS record. Watch the address appear with:
+  kubectl -n {{ $ns }} get ingress {{ include "sitework.fullname" . }} -w
+{{- end }}
+{{- else }}
+The Ingress is disabled. Reach the app with a port-forward:
+  kubectl -n {{ $ns }} port-forward svc/{{ include "sitework.web.fullname" . }} 3000:80
+{{- end }}
+
+Handy commands:
+  kubectl -n {{ $ns }} get pods,svc,ingress -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl -n {{ $ns }} logs deploy/{{ include "sitework.api.fullname" . }} -f
+  kubectl -n {{ $ns }} logs deploy/{{ include "sitework.web.fullname" . }} -f
+{{- if .Values.migrations.enabled }}
+  # Migration Job (pre-install/pre-upgrade hook; deleted on success, kept on failure):
+  kubectl -n {{ $ns }} logs job/{{ include "sitework.migrations.fullname" . }}
+  kubectl -n {{ $ns }} get events --field-selector involvedObject.name={{ include "sitework.migrations.fullname" . }}
+{{- end }}
+{{- if .Values.database.externalSecret.enabled }}
+  # Database credentials synced by External Secrets Operator:
+  kubectl -n {{ $ns }} get secretstore,externalsecret -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Note: the SecretStore and ExternalSecret are Helm hooks and the Secret "{{ include "sitework.db.secretName" . }}" is
+orphaned on purpose, so `helm uninstall` leaves all three. Remove them with:
+  kubectl -n {{ $ns }} delete externalsecret,secretstore -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl -n {{ $ns }} delete secret {{ include "sitework.db.secretName" . }}
+{{- end }}

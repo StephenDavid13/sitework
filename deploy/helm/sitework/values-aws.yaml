@@ -1,0 +1,74 @@
+# AWS EKS: AWS Load Balancer Controller (ALB), External Secrets Operator, ExternalDNS.
+# Account-specific values (ECR registry, host, ACM certificate, RDS host and secret, VPC CIDR)
+# come from the extra values file Terraform writes to SSM, passed with -f after this one:
+#   helm upgrade --install sitework deploy/helm/sitework -n sitework \
+#     -f deploy/helm/sitework/values-aws.yaml -f <ssm-values>.yaml --set-string image.tag=$GIT_SHA \
+#     --wait --rollback-on-failure --timeout 10m
+# ci/aws-test-values.yaml has the same keys with dummy values for linting.
+
+image:
+  pullPolicy: IfNotPresent
+
+api:
+  environment: Production
+  replicas: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+  # Keep serving while the ALB deregisters the pod (pod readiness gates cover the start).
+  preStopSleepSeconds: 15
+  service:
+    annotations:
+      # Per-target-group health check: ready means the database is reachable.
+      alb.ingress.kubernetes.io/healthcheck-path: /health/ready
+
+web:
+  replicas: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+  preStopSleepSeconds: 15
+  service:
+    annotations:
+      alb.ingress.kubernetes.io/healthcheck-path: /healthz
+
+ingress:
+  className: alb
+  externalDns: true
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/success-codes: "200"
+    alb.ingress.kubernetes.io/load-balancer-attributes: routing.http.drop_invalid_header_fields.enabled=true
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+
+database:
+  port: 5432
+  name: sitework
+  sslMode: Require
+  externalSecret:
+    enabled: true
+    refreshInterval: 5m
+
+migrations:
+  # Public demo: seed sample jobs into an empty database.
+  seedDemoData: true

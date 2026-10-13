@@ -1,0 +1,13 @@
+apiVersion: v2
+name: sitework
+description: Sitework - .NET API and Next.js web app for coordinating location-based jobs, with a migration hook and PostgreSQL/PostGIS.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+# preStop `sleep` lifecycle handlers are on by default from 1.30.
+kubeVersion: ">=1.30.0-0"
+keywords:
+  - sitework
+  - aspnetcore
+  - nextjs
+  - postgis

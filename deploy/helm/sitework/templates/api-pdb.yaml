@@ -1,0 +1,14 @@
+{{- if .Values.api.pdb.enabled }}
+{{- $component := dict "root" $ "component" "api" -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "sitework.api.fullname" . }}
+  labels:
+    {{- include "sitework.labels" $component | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.api.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "sitework.selectorLabels" $component | nindent 6 }}
+{{- end }}

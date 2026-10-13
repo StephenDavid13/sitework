@@ -1,0 +1,14 @@
+# Dummy stand-in for the values file Terraform writes to SSM (exactly these keys), used to
+# lint and kubeconform values-aws.yaml. Never deployed.
+image:
+  registry: "123456789012.dkr.ecr.ap-southeast-2.amazonaws.com"
+ingress:
+  host: "sitework.example.com"
+  certificateArn: "arn:aws:acm:ap-southeast-2:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+database:
+  host: "sitework-dev.abcdefghijkl.ap-southeast-2.rds.amazonaws.com"
+  externalSecret:
+    secretArn: "arn:aws:secretsmanager:ap-southeast-2:123456789012:secret:rds!db-00000000-0000-0000-0000-000000000000-AbCdEf"
+    region: "ap-southeast-2"
+api:
+  trustedProxyNetworks: ["10.20.0.0/16"]
