@@ -15,7 +15,9 @@ test("the workspace shows jobs on a list and a map", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Jobs" })).toBeVisible();
   await expect(page.getByText(/^\d+ jobs?$/)).toBeVisible();
   await expect(page.locator(".maplibregl-canvas")).toBeVisible();
-  await expect(page.getByText("All systems normal")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /^(Live|All systems normal)$/ }),
+  ).toBeVisible();
 
   await expectAccessible(page);
   // Includes CSP violations and MapLibre worker failures.

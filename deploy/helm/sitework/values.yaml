@@ -29,6 +29,10 @@ api:
   # OpenTelemetry traces and metrics go to this OTLP endpoint (e.g. an ADOT/OTel collector) when set.
   telemetry:
     otlpEndpoint: ""
+    # grpc (port 4317) or http/protobuf (4318; the CloudWatch agent's Application Signals port is 4316).
+    otlpProtocol: grpc
+    # Extra OTEL_RESOURCE_ATTRIBUTES, e.g. deployment.environment=dev.
+    resourceAttributes: ""
   # Optional overrides of the API's built-in limits (600 requests / 60 writes per minute per IP).
   rateLimiting:
     requestsPerMinute: null
@@ -145,6 +149,8 @@ ingress:
   publicUrl: ""
   # ACM certificate for the ALB HTTPS listener. Adds alb.ingress.kubernetes.io/certificate-arn.
   certificateArn: ""
+  # AWS WAF web ACL to attach to the ALB (written to SSM by the infra stack when enabled).
+  wafAclArn: ""
   # Adds external-dns.alpha.kubernetes.io/hostname=<host> (ExternalDNS also reads the rules).
   externalDns: false
   # Optional client allowlist (alb.ingress.kubernetes.io/inbound-cidrs), e.g. to lock a demo

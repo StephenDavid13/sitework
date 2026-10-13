@@ -39,3 +39,15 @@ variable "node_instance_types" {
   type        = list(string)
   default     = ["t4g.medium"]
 }
+
+variable "enable_waf" {
+  description = "Attach an AWS WAF web ACL (per-IP rate limit + AWS managed rules) to the app's load balancer (~US$9/month)."
+  type        = bool
+  default     = true
+}
+
+variable "waf_rate_limit_per_5_minutes" {
+  description = "Requests per client IP per 5 minutes before WAF blocks it. A backstop above the API's own per-IP limits."
+  type        = number
+  default     = 3000
+}

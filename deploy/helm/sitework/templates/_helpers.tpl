@@ -181,6 +181,12 @@ Everything the API process reads from the environment (Deployment and migration 
 {{- with (.Values.api.telemetry).otlpEndpoint }}
 - name: OTEL_EXPORTER_OTLP_ENDPOINT
   value: {{ . | quote }}
+- name: OTEL_EXPORTER_OTLP_PROTOCOL
+  value: {{ ($.Values.api.telemetry).otlpProtocol | default "grpc" | quote }}
+{{- end }}
+{{- with (.Values.api.telemetry).resourceAttributes }}
+- name: OTEL_RESOURCE_ATTRIBUTES
+  value: {{ . | quote }}
 {{- end }}
 {{- end }}
 

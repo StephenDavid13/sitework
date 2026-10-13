@@ -7,7 +7,7 @@ destroyed between demo sessions without touching DNS delegation, images or the C
 |---|---|---|---|
 | `bootstrap` | local (`terraform.tfstate`, gitignored) | permanent | S3 state bucket `sitework-tfstate-<account>-<region>` (versioned, SSE-S3, TLS-only, `prevent_destroy`) |
 | `envs/dev/foundation` | `s3://…/dev/foundation.tfstate` | permanent | Route 53 zone for the subdomain (+ NS delegation if the parent is in Route 53), ECR `sitework-api` / `sitework-web`, GitHub OIDC provider, CI role `sitework-dev-github-deploy` |
-| `envs/dev/infra` | `s3://…/dev/infra.tfstate` | disposable | VPC (2 AZs, 1 NAT), EKS `sitework-dev` + managed node group, RDS PostgreSQL 17, ACM certificate, SSM parameter `/sitework/dev/helm-values` |
+| `envs/dev/infra` | `s3://…/dev/infra.tfstate` | disposable | VPC (2 AZs, 1 NAT), EKS `sitework-dev` + managed node group, RDS PostgreSQL 17, ACM certificate, AWS WAF web ACL, SSM parameter `/sitework/dev/helm-values` |
 | `envs/dev/platform` | `s3://…/dev/platform.tfstate` | disposable | AWS Load Balancer Controller, External Secrets Operator, ExternalDNS, metrics-server (each with a Pod Identity role), CloudWatch Container Insights add-on (container logs + metrics, 14-day log retention), namespace `sitework` + CI RBAC |
 
 All state uses S3 native locking (`use_lockfile = true`); there is no DynamoDB table.
@@ -16,6 +16,7 @@ All state uses S3 native locking (`use_lockfile = true`); there is no DynamoDB t
 
 - Terraform >= 1.11.1 from `hashicorp/tap` (the Homebrew-core formula is frozen at 1.5.7), AWS CLI v2, kubectl, Helm 4.
 - AWS credentials for the target account with admin-level rights (`aws sts get-caller-identity` must work).
+- **The account must be on the Paid plan.** Free-plan accounts can only launch Free Tier instance types, so the EKS node group never gets nodes. It sits in `CREATING`, with `RunInstances` failing in CloudTrail ("not eligible for Free Tier"). Upgrade in Billing → plan; any remaining credits still apply.
   Whoever applies `infra` becomes a cluster admin through an EKS access entry; use the same identity for `platform`.
 - Region defaults to `ap-southeast-2`; override with `AWS_REGION=...` on any target.
 
@@ -136,7 +137,8 @@ then retry.
 | Public IPv4 addresses (NAT, ALB) | 11 |
 | KMS key (EKS secrets), Secrets Manager secret | 2 |
 | CloudWatch Container Insights metrics + container logs (small cluster) | 5–15 |
-| **Total** | **~240–265 (≈ US$8–9 per day)** |
+| AWS WAF (web ACL + 4 rules, + US$0.60/M requests) | 9 |
+| **Total** | **~250–275 (≈ US$8–9 per day)** |
 
 Torn down to `foundation` only, it is roughly US$1/month: the hosted zone (US$0.50), ECR storage
 and state bucket storage. Destroy `infra` whenever you are not demoing.

@@ -10,6 +10,12 @@ image:
   pullPolicy: IfNotPresent
 
 api:
+  # Traces and metrics to the CloudWatch agent (Container Insights add-on, Application Signals
+  # OTLP endpoint), which forwards traces to X-Ray.
+  telemetry:
+    otlpEndpoint: http://cloudwatch-agent.amazon-cloudwatch:4316
+    otlpProtocol: http/protobuf
+    resourceAttributes: deployment.environment=sitework-dev
   environment: Production
   replicas: 2
   autoscaling:

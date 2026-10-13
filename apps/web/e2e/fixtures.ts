@@ -19,8 +19,9 @@ export async function createJob(page: Page, title: string) {
   await page.getByRole("textbox", { name: "Site name" }).fill("E2E site");
   await page.getByRole("button", { name: "Create job" }).click();
 
-  await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  // Toasts are transient (4 s), so check it before waiting on the next page to load.
   await expect(page.getByText(/JOB-\d+ created/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: title })).toBeVisible();
   return page.url();
 }
 
@@ -30,6 +31,8 @@ export async function expectAccessible(page: Page) {
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
     // The map canvas is decorative for assistive tech; the list is the accessible equivalent.
     .exclude(".maplibregl-canvas")
+    // Toasts animate and stacked ones fade back on purpose, so axe can't measure them reliably.
+    .exclude("[data-sonner-toaster]")
     .analyze();
   const serious = results.violations.filter(
     (v) => v.impact === "serious" || v.impact === "critical",

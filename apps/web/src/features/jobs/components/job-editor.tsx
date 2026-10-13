@@ -4,11 +4,13 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { toast } from "sonner";
 import { QueryError } from "@/components/query-error";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isApiError } from "@/lib/api/errors";
-import { jobQueries, useCreateJob, useReloadJob, useUpdateJob } from "../api";
+import { jobQueries, useCreateJob, useUpdateJob } from "../api";
+import type { Job } from "../model";
 import { STATUS_META } from "../model";
 import { JobForm } from "./job-form";
 import { JobNotFound } from "./job-not-found";
@@ -72,7 +74,18 @@ export function JobEdit({ id }: { id: string }) {
     refetch,
   } = useQuery(jobQueries.detail(id));
   const update = useUpdateJob(id);
-  const reload = useReloadJob(id);
+  // The form edits a snapshot: live updates refresh `job` in the background, and swapping the
+  // form's data out from under the user would discard their unsaved edits.
+  const [editing, setEditing] = useState<Job | null>(null);
+  if (job && (!editing || editing.id !== job.id)) {
+    setEditing(job);
+  }
+  const reloadLatest = async () => {
+    const { data } = await refetch();
+    if (data) {
+      setEditing(data);
+    }
+  };
 
   if (isPending) {
     return (
@@ -109,24 +122,45 @@ export function JobEdit({ id }: { id: string }) {
     );
   }
 
+  const current = editing ?? job;
+  const changedElsewhere = editing !== null && job.version !== editing.version;
+
   return (
     <EditorShell
-      title={`Edit ${job.reference}`}
+      title={`Edit ${current.reference}`}
       backHref={`/jobs/${id}`}
       backLabel="Back to job"
     >
+      {changedElsewhere && job.canEdit && (
+        <div
+          role="status"
+          className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <span>
+            Someone else changed this job while you were editing. Saving now
+            will ask you to reload.
+          </span>
+          <button
+            type="button"
+            onClick={() => setEditing(job)}
+            className="font-medium underline underline-offset-2"
+          >
+            Load their changes
+          </button>
+        </div>
+      )}
       {job.canEdit ? (
         <JobForm
-          // Remount with fresh values when a reload brings in someone else's changes.
-          key={job.version}
-          job={job}
+          // Remount with fresh values only when the user chooses to load the latest version.
+          key={current.version}
+          job={current}
           submitLabel="Save changes"
           cancelHref={`/jobs/${id}`}
-          onReload={() => void reload()}
+          onReload={() => void reloadLatest()}
           onSubmit={async (request) => {
             const saved = await update.mutateAsync({
               ...request,
-              version: job.version,
+              version: current.version,
             });
             toast.success(`${saved.reference} saved`);
             router.push(`/jobs/${id}`);

@@ -12,3 +12,5 @@ Short records of the decisions that shape Sitework: what was decided, why, and w
 | [0006](0006-terraform-stacks-by-lifetime.md) | Four Terraform stacks split by lifetime |
 | [0007](0007-e2e-on-kind.md) | End-to-end tests against the real chart on kind |
 | [0008](0008-no-auth-yet.md) | No logins yet: rate limiting instead |
+| [0009](0009-live-updates.md) | Live updates: server-sent events fanned out by Postgres LISTEN/NOTIFY |
+| [0010](0010-geocoding-via-photon.md) | Address search through Photon, proxied by the API |

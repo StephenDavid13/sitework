@@ -4,7 +4,7 @@ An API-driven app for coordinating field work across many sites. Each record is 
 
 > "Sitework" and "Job" are working names. Renaming the domain (e.g. *Inspection*, *Work Order*, *Site Visit*) changes nothing structural.
 
-> **Status (2026-10-13):** milestones 0–6 are built and verified locally. That covers the app, the tests, the Helm chart on kind, Terraform (validated), CI/CD and docs. The AWS apply is waiting on the subdomain and AWS CLI access (§13). Where implementation departed from this plan, the text below has been updated and the reasoning recorded in [docs/adr](docs/adr).
+> **Status (2026-10-13):** milestones 0–6 and stretch goals 1, 3 and 4 are built, tested, and verified on kind. That includes the CI pipeline, which is green on GitHub. The first AWS apply reached the EKS control plane, RDS, VPC and certificate, then stopped: the account is on AWS's Free plan, which rejects the `t4g.medium` nodes. At the owner's request the environment was torn down to the long-lived `foundation` stack (DNS delegation for `sitework.stephendavid.dev` and ECR are kept). To go live, upgrade the account to the Paid plan, then run `make tf-apply-infra tf-apply-platform aws-release`. Where implementation departed from this plan, the text below has been updated and the reasoning recorded in [docs/adr](docs/adr).
 
 ---
 
@@ -350,11 +350,13 @@ Terraform is **applied manually** (plan in CI, apply by a human) for safety.
 | 6 | **Polish** | README (quick start, architecture, trade-offs), ADRs, demo seed, screenshots | 0.5 d | ✅ Done |
 
 **Stretch goals, in priority order:**
-1. Address search and reverse geocoding (Photon/Nominatim, proxied through the API).
-2. Login (Cognito/OIDC) with roles (coordinator vs field worker). *Deferred by decision; the API's route groups make it a one-line `RequireAuthorization()` later.*
-3. OpenTelemetry traces to CloudWatch/X-Ray.
-4. Server-sent events for live status updates across users.
-5. Swap to EKS Auto Mode.
+1. ✅ Address search and reverse geocoding: Photon, proxied, cached and rate limited by the API ([ADR 0010](docs/adr/0010-geocoding-via-photon.md)).
+2. ⏸ Login (Cognito/OIDC) with roles (coordinator vs field worker). *Deferred by decision; the API's route groups make it a one-line `RequireAuthorization()` later.*
+3. ✅ OpenTelemetry traces to CloudWatch/X-Ray, through the Container Insights agent's OTLP endpoint. Configured, but not yet verified on AWS.
+4. ✅ Server-sent events for live updates across users ([ADR 0009](docs/adr/0009-live-updates.md)).
+5. ✖ Swap to EKS Auto Mode. Not done: it's an alternative to managed node groups, not an addition, and it adds a compute surcharge.
+
+Also added from §9: an **AWS WAF** web ACL on the ALB (per-IP rate limit + AWS managed rules), on by default. Validated, but not yet verified on AWS.
 
 **If time is tight, cut in this order:**
 1. Radius search.

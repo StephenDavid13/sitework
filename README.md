@@ -39,8 +39,10 @@ stateDiagram-v2
   - "Near me" radius search and "search this area" by bounding box.
   - Filters, page and selection all live in the URL, so any view can be shared.
 - **Server-driven lifecycle.** Each job response lists the status changes allowed from its current state, and the UI renders buttons from that list. Holds and cancellations ask for a note; scheduling asks for a time. Completed and cancelled jobs are read-only, and every change is kept in a history timeline.
+- **Live updates across users.** When anyone creates, edits or moves a job, every open list, map and job page refreshes within a second. Server-sent events are fanned out across API replicas by Postgres LISTEN/NOTIFY.
 - **Data entry**:
   - Create and edit forms with a map location picker (click or drag a pin, or "use my location").
+  - Address search with suggestions biased to the map. Dropping a pin fills in the nearest address. Both use OpenStreetMap data via Photon, proxied and cached by the API.
   - Client-side validation that mirrors the API's limits.
   - API validation errors shown on the matching fields.
 - **Resilient UX**:
@@ -100,9 +102,9 @@ http://sitework.localhost:8080 ([deploy/local/README.md](deploy/local/README.md)
 
 | Command | What it runs |
 |---|---|
-| `make test-api` | 92 xUnit tests: exhaustive lifecycle matrix, domain rules, and API integration tests against real PostGIS (Testcontainers) |
-| `make test-web` | 42 Vitest + Testing Library + MSW tests: loading, error, retry, validation, conflict, optimistic rollback |
-| `make e2e` | 11 Playwright tests (desktop and mobile), including axe accessibility checks. CI runs them against the chart deployed on kind |
+| `make test-api` | 110 xUnit tests: exhaustive lifecycle matrix, domain rules, live updates through the real Postgres trigger, geocoding against a fake upstream, and API integration tests against real PostGIS (Testcontainers) |
+| `make test-web` | 51 Vitest + Testing Library + MSW tests: loading, error, retry, validation, conflict, optimistic rollback, live-update batching, address search |
+| `make e2e` | 12 Playwright tests (desktop and mobile), including axe accessibility checks and a two-user live-update scenario. CI runs them against the chart deployed on kind |
 | `make lint` | ESLint, `tsc`, Prettier |
 | `make contract-check` | OpenAPI document and TypeScript client are in sync with the code |
 | `make helm-lint` / `make helm-scan` | helm lint, kubeconform (K8s 1.37 + CRDs), Trivy |
@@ -138,7 +140,8 @@ git push                                # CI builds, pushes, migrates and deploy
 If your AWS organization blocks GitHub OIDC providers, set `enable_github_deploy = false` and
 release from your machine with `make aws-release` instead of the `gh variable set` step.
 
-Running it costs about US$8–9 a day. To tear down, run `helm uninstall`, then destroy `platform`, then `infra`. `foundation` stays.
+Running it costs about US$8–9 a day. The account must be on AWS's **Paid** plan: Free-plan
+accounts can only launch Free Tier instance types, and the cluster nodes aren't one. To tear down, run `helm uninstall`, then destroy `platform`, then `infra`. `foundation` stays.
 Day-2 operations (rollbacks, logs, scaling, secrets) are in [docs/runbook.md](docs/runbook.md).
 
 ## Production readiness
@@ -148,6 +151,7 @@ Day-2 operations (rollbacks, logs, scaling, secrets) are in [docs/runbook.md](do
   - CSP, HSTS and frame denial are set on the web app; nosniff and related headers on the API.
   - Containers run as non-root with read-only root filesystems and all capabilities dropped. Pod Security is restricted.
   - IAM is least-privilege per controller via Pod Identity. RDS is private and encrypted.
+  - AWS WAF on the load balancer: a per-IP rate limit plus AWS managed rules for common exploits, known-bad inputs and IP reputation.
   - Image and IaC scans run in CI.
 - **Secrets**:
   - No secrets in the repo, images or Terraform outputs.
@@ -159,7 +163,7 @@ Day-2 operations (rollbacks, logs, scaling, secrets) are in [docs/runbook.md](do
   - Transient database errors are retried. Migrations run as a hook with automatic rollback.
 - **Observability**:
   - Structured JSON logs go to CloudWatch Logs (Container Insights, 14-day retention).
-  - OpenTelemetry traces and metrics (HTTP, SQL, runtime) export over OTLP when `api.telemetry.otlpEndpoint` is set.
+  - OpenTelemetry traces and metrics (HTTP, SQL, runtime) go to the CloudWatch agent, which forwards traces to X-Ray. Any OTLP endpoint works via `api.telemetry.otlpEndpoint`.
   - RFC 9457 problem details carry trace IDs.
 - **Data integrity**:
   - The server enforces the lifecycle rules.

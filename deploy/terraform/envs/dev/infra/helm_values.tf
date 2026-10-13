@@ -10,10 +10,13 @@ resource "aws_ssm_parameter" "helm_values" {
     image = {
       registry = local.foundation.ecr_registry_url
     }
-    ingress = {
-      host           = local.subdomain
-      certificateArn = aws_acm_certificate_validation.app.certificate_arn
-    }
+    ingress = merge(
+      {
+        host           = local.subdomain
+        certificateArn = aws_acm_certificate_validation.app.certificate_arn
+      },
+      var.enable_waf ? { wafAclArn = aws_wafv2_web_acl.app[0].arn } : {},
+    )
     database = {
       host = module.rds.db_instance_address
       externalSecret = {

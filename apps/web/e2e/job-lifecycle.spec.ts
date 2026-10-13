@@ -111,8 +111,8 @@ test("a draft job is deleted after confirmation", async ({ page }) => {
     .getByRole("button", { name: "Delete job" })
     .click();
 
-  await expect(page).toHaveURL(/\/jobs$/);
   await expect(page.getByText(/JOB-\d+ deleted/)).toBeVisible();
+  await expect(page).toHaveURL(/\/jobs$/);
   await page.goto(url);
   await expect(
     page.getByRole("heading", { name: "Job not found" }),

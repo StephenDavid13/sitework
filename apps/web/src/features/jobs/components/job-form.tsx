@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, LocateFixed } from "lucide-react";
 import Link from "next/link";
 import { useId, useState } from "react";
@@ -23,12 +24,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { describeError, fieldErrors, isStaleVersion } from "@/lib/api/errors";
 import { fromDateTimeLocal, toDateTimeLocal } from "@/lib/format";
 import {
+  DEFAULT_CENTER,
   JOB_PRIORITIES,
   PRIORITY_META,
   type CreateJobRequest,
   type Job,
   type JobPriority,
 } from "../model";
+import { geocodeQueries } from "../geocoding";
+import { AddressSearch } from "./address-search";
 import { ConflictDialog } from "./conflict-dialog";
 import { LocationMap } from "./maps";
 
@@ -128,8 +132,17 @@ export function JobForm({
     defaultValues: toValues(job),
     mode: "onTouched",
   });
-  const { register, handleSubmit, setValue, setError, control, formState } =
-    form;
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    setError,
+    getValues,
+    control,
+    formState,
+  } = form;
+  const queryClient = useQueryClient();
+  const [suggestedAddress, setSuggestedAddress] = useState<string | null>(null);
   const { errors, isSubmitting } = formState;
 
   const [latitude, longitude] = useWatch({
@@ -150,6 +163,28 @@ export function JobForm({
       shouldDirty: true,
       shouldValidate: true,
     });
+  };
+
+  /** A pin from the map or "use my location": also look up the nearest address. */
+  const pickLocation = async (value: {
+    latitude: number;
+    longitude: number;
+  }) => {
+    setLocation(value);
+    setSuggestedAddress(null);
+    try {
+      const nearest = await queryClient.fetchQuery(
+        geocodeQueries.reverse(value.latitude, value.longitude),
+      );
+      const current = getValues("address").trim();
+      if (!current) {
+        setValue("address", nearest.label, { shouldDirty: true });
+      } else if (current !== nearest.label) {
+        setSuggestedAddress(nearest.label);
+      }
+    } catch {
+      // No address nearby, or the lookup is unavailable: the pin alone is enough.
+    }
   };
 
   const submit = handleSubmit(async (values) => {
@@ -257,11 +292,21 @@ export function JobForm({
       <FieldSet>
         <FieldLegend>Location</FieldLegend>
         <FieldDescription>
-          Click the map to drop a pin, drag it to adjust, or enter coordinates.
+          Search for an address, click the map to drop a pin (drag it to
+          adjust), or enter coordinates.
         </FieldDescription>
 
+        <AddressSearch
+          near={location ?? DEFAULT_CENTER}
+          onSelect={(result) => {
+            setLocation(result);
+            setValue("address", result.label, { shouldDirty: true });
+            setSuggestedAddress(null);
+          }}
+        />
+
         <div className="h-72 overflow-hidden rounded-lg border sm:h-80">
-          <LocationMap value={location} onChange={setLocation} />
+          <LocationMap value={location} onChange={pickLocation} />
         </div>
 
         <div className="grid gap-5 sm:grid-cols-[1fr_1fr_auto] sm:items-start">
@@ -289,7 +334,7 @@ export function JobForm({
             />
             <FieldError errors={[errors.longitude]} />
           </Field>
-          <UseMyLocation onLocate={setLocation} />
+          <UseMyLocation onLocate={pickLocation} />
         </div>
 
         <div className="grid gap-5 sm:grid-cols-2">
@@ -311,6 +356,23 @@ export function JobForm({
               aria-invalid={Boolean(errors.address)}
               {...register("address")}
             />
+            {suggestedAddress && (
+              <FieldDescription>
+                Nearest address to the pin: {suggestedAddress}.{" "}
+                <button
+                  type="button"
+                  className="font-medium text-foreground underline underline-offset-2"
+                  onClick={() => {
+                    setValue("address", suggestedAddress, {
+                      shouldDirty: true,
+                    });
+                    setSuggestedAddress(null);
+                  }}
+                >
+                  Use it
+                </button>
+              </FieldDescription>
+            )}
             <FieldError errors={[errors.address]} />
           </Field>
         </div>

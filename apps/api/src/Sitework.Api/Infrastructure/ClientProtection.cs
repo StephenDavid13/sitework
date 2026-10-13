@@ -8,12 +8,16 @@ namespace Sitework.Api.Infrastructure;
 public static class RateLimitPolicies
 {
     public const string Writes = "writes";
+
+    /// <summary>Protects the upstream geocoder's fair-use limits as well as our own.</summary>
+    public const string Geocoding = "geocoding";
 }
 
 public sealed class RateLimitOptions
 {
     public int RequestsPerMinute { get; init; } = 600;
     public int WritesPerMinute { get; init; } = 60;
+    public int GeocodingPerMinute { get; init; } = 60;
 }
 
 /// <summary>
@@ -44,6 +48,8 @@ public static class ClientProtection
                 RateLimitPartition.GetFixedWindowLimiter(ClientKey(context), _ => PerMinute(limits.RequestsPerMinute)));
             options.AddPolicy(RateLimitPolicies.Writes, context =>
                 RateLimitPartition.GetFixedWindowLimiter(ClientKey(context), _ => PerMinute(limits.WritesPerMinute)));
+            options.AddPolicy(RateLimitPolicies.Geocoding, context =>
+                RateLimitPartition.GetFixedWindowLimiter(ClientKey(context), _ => PerMinute(limits.GeocodingPerMinute)));
             options.OnRejected = WriteProblemAsync;
         });
 

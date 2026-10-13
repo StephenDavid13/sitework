@@ -5,6 +5,7 @@ image:
 ingress:
   host: "sitework.example.com"
   certificateArn: "arn:aws:acm:ap-southeast-2:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+  wafAclArn: "arn:aws:wafv2:ap-southeast-2:123456789012:regional/webacl/sitework-dev/00000000-0000-0000-0000-000000000000"
 database:
   host: "sitework-dev.abcdefghijkl.ap-southeast-2.rds.amazonaws.com"
   externalSecret:

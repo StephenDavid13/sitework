@@ -62,4 +62,23 @@ public static class DatabaseConnection
 
         return new DatabaseConnectionSettings(builder.ConnectionString, passwordFile);
     }
+
+    /// <summary>
+    /// The one data source the app uses (EF Core and the job-change listener), so they share the
+    /// connection pool, PostGIS type mapping and the rotating password.
+    /// </summary>
+    public static NpgsqlDataSource CreateDataSource(DatabaseConnectionSettings settings)
+    {
+        var builder = new NpgsqlDataSourceBuilder(settings.ConnectionString);
+        builder.UseNetTopologySuite();
+        if (settings.PasswordFile is { } passwordFile)
+        {
+            builder.UsePeriodicPasswordProvider(
+                async (_, cancellationToken) => (await File.ReadAllTextAsync(passwordFile, cancellationToken)).Trim(),
+                successRefreshInterval: TimeSpan.FromMinutes(5),
+                failureRefreshInterval: TimeSpan.FromSeconds(10));
+        }
+
+        return builder.Build();
+    }
 }

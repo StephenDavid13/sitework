@@ -1,13 +1,28 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw/http";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/errors";
 import { makeJob } from "@/test/fixtures";
+import { server } from "@/test/msw-server";
 import { renderWithQueryClient } from "@/test/render";
 import { JobForm } from "./job-form";
 
-// MapLibre needs WebGL; the picker is exercised in the end-to-end tests.
-vi.mock("./maps", () => ({ LocationMap: () => <div data-testid="map" /> }));
+// MapLibre needs WebGL: stand in a button that "drops a pin". The real map is covered end to end.
+vi.mock("./maps", () => ({
+  LocationMap: ({
+    onChange,
+  }: {
+    onChange?: (value: { latitude: number; longitude: number }) => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => onChange?.({ latitude: -36.853, longitude: 174.744 })}
+    >
+      Drop pin
+    </button>
+  ),
+}));
 
 async function fillRequired() {
   await userEvent.type(screen.getByLabelText("Title"), "Fix fence");
@@ -16,6 +31,44 @@ async function fillRequired() {
 }
 
 describe("JobForm", () => {
+  it("fills the address from a dropped pin, or offers it when one is typed", async () => {
+    server.use(
+      http.get("*/api/geocode/reverse", () =>
+        HttpResponse.json({
+          label: "12 Kauri Street, Ponsonby, Auckland",
+          latitude: -36.853,
+          longitude: 174.744,
+        }),
+      ),
+    );
+    renderWithQueryClient(
+      <JobForm
+        submitLabel="Create job"
+        cancelHref="/jobs"
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Drop pin" }));
+    expect(
+      await screen.findByDisplayValue("12 Kauri Street, Ponsonby, Auckland"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Latitude")).toHaveValue(-36.853);
+
+    await userEvent.clear(screen.getByLabelText("Address"));
+    await userEvent.type(
+      screen.getByLabelText("Address"),
+      "Back gate on Rimu Road",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Drop pin" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Use it" }),
+    );
+    expect(screen.getByLabelText("Address")).toHaveValue(
+      "12 Kauri Street, Ponsonby, Auckland",
+    );
+  });
+
   it("explains what's missing before calling the API", async () => {
     const onSubmit = vi.fn();
     renderWithQueryClient(

@@ -72,8 +72,37 @@ The release was rolled back automatically. Fix the cause and redeploy:
 
   Every API error response carries a `traceId` (problem details) that appears in the matching log entry.
 - **Metrics:** CloudWatch → Container Insights (CPU/memory per pod, restarts, node health).
-- **Traces and app metrics:** set `api.telemetry.otlpEndpoint` to an OpenTelemetry collector, for example the ADOT add-on, and redeploy. Traces cover HTTP in and out plus SQL; metrics cover HTTP, runtime and the connection pool.
+- **Traces and app metrics:** on EKS the API exports OTLP (HTTP) to the CloudWatch agent (`cloudwatch-agent.amazon-cloudwatch:4316`), which forwards traces to X-Ray. Look in CloudWatch → X-Ray traces / Application Signals, service `sitework-api`. Traces cover HTTP in and out plus SQL; metrics cover HTTP, runtime and the connection pool. Point `api.telemetry.otlpEndpoint` at any other collector to send them elsewhere.
 - **Quick checks:** `https://<host>/api/status` (version, environment, database health), and `/status` in the UI.
+
+## Live updates
+
+Browsers hold one server-sent-events connection (`/api/events`) per tab. A trigger on `jobs`
+emits `pg_notify`. Every API pod LISTENs and forwards the event, and clients refetch what changed.
+
+- **Health:** the header shows "Live" while the stream is connected, and "Reconnecting live updates" otherwise. EventSource retries on its own.
+- **Proxies** must not buffer the stream. The API sends `X-Accel-Buffering: no` and a ping every 20 s, which keeps it under the ALB's 60 s idle timeout.
+- **Many tabs:** over plain HTTP/1.1, browsers allow 6 connections per host, and each tab's stream holds one. The ALB serves HTTP/2, which multiplexes, so this only matters locally.
+- If the listener's database connection drops, it reconnects with backoff and tells clients to refetch everything (`resync`). Look for "Lost the job-change listener connection" in the logs.
+
+## Address search
+
+The API proxies [Photon](https://photon.komoot.io), OpenStreetMap data under the ODbL. The UI
+shows the attribution.
+
+- Results are cached in memory for 24 hours.
+- Clients are limited to 60 lookups per minute per IP.
+- Upstream failures return a `503` with `code: geocoding_unavailable`. The form keeps working: drop a pin or type coordinates instead.
+- Heavy use belongs on your own Photon instance. Set `Geocoding__BaseUrl` (via `api.extraEnv`).
+
+## WAF
+
+The web ACL (`sitework-dev`, enabled by default) blocks a client IP above 3,000 requests per 5
+minutes. It also applies AWS managed rules: IP reputation, known-bad inputs and the common rule set.
+
+- **Metrics and sampled requests:** WAF console → Web ACLs → `sitework-dev`.
+- **False positive** (a legitimate request blocked): find the rule in the sampled requests. Override that one rule to `count` in `deploy/terraform/envs/dev/infra/waf.tf`, then re-apply `infra`.
+- **Turn it off:** `enable_waf = false`, then re-apply `infra` and redeploy. The annotation disappears with the SSM value.
 
 ## Scaling
 

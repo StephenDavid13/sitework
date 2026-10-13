@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
+import { useJobLiveUpdates } from "@/features/jobs/live-updates";
 import { statusQuery } from "@/features/system/api-status";
 import { cn } from "@/lib/utils";
 
@@ -71,7 +72,12 @@ function MainNav({ pathname }: { pathname: string | null }) {
 }
 
 /** A quiet signal that the backend is reachable; details live on /status. */
+/**
+ * A quiet signal that the backend is reachable and live updates are flowing; details on /status.
+ * Mounting it opens the tab's single live-update stream.
+ */
 function ApiIndicator() {
+  const live = useJobLiveUpdates();
   const { data, error, isPending } = useQuery({
     ...statusQuery,
     refetchInterval: 60_000,
@@ -82,11 +88,20 @@ function ApiIndicator() {
       ? { color: "bg-red-500", label: "API unreachable" }
       : data.database !== "Healthy"
         ? { color: "bg-amber-500", label: "Database unavailable" }
-        : { color: "bg-green-500", label: "All systems normal" };
+        : live === "live"
+          ? { color: "bg-green-500 animate-pulse", label: "Live" }
+          : live === "reconnecting"
+            ? { color: "bg-amber-500", label: "Reconnecting live updates" }
+            : { color: "bg-green-500", label: "All systems normal" };
 
   return (
     <Link
       href="/status"
+      title={
+        live === "live"
+          ? "Changes made by others appear automatically"
+          : undefined
+      }
       className="hidden items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted sm:inline-flex"
     >
       <span aria-hidden className={cn("size-2 rounded-full", state.color)} />

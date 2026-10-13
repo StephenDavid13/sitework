@@ -57,6 +57,9 @@ kind-images: ## Build the API and web images for kind (sitework-api:local, sitew
 	docker build -t $(KIND_WEB_IMAGE) apps/web
 
 kind-load: ## Load the local API and web images into the kind node
+	@# Each rebuild leaves the previous image copy in the node. Drop unused ones first (pruning
+	@# after loading would also remove the new images, which no container uses yet).
+	@docker exec $(KIND_CLUSTER)-control-plane crictl rmi --prune >/dev/null 2>&1 || true
 	kind load docker-image $(KIND_API_IMAGE) $(KIND_WEB_IMAGE) --name $(KIND_CLUSTER)
 
 # The image IDs go into pod annotations so a rebuilt `:local` image rolls the pods.
