@@ -5,6 +5,10 @@ API_DIR := apps/api
 WEB_DIR := apps/web
 CONTRACT_FILES := $(API_DIR)/openapi.json $(WEB_DIR)/src/lib/api/schema.d.ts
 
+# Local Kubernetes (kind) and AWS (Terraform) targets live next to their code.
+-include deploy/local/local.mk
+-include deploy/terraform/terraform.mk
+
 .PHONY: help
 help: ## List available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -17,7 +21,7 @@ setup: ## Install .NET tools/packages and web packages
 	cd $(WEB_DIR) && pnpm install --frozen-lockfile
 
 .PHONY: dev
-dev: db-up ## Run PostGIS, the API (hot reload) and the web app together
+dev: db-up migrate ## Run PostGIS, the API (hot reload) and the web app together
 	@$(MAKE) --no-print-directory -j2 api web
 
 .PHONY: api
@@ -35,6 +39,14 @@ db-up: ## Start PostGIS on localhost:55432
 .PHONY: db-down
 db-down: ## Stop PostGIS (data is kept)
 	docker compose down
+
+.PHONY: migrate
+migrate: ## Apply database migrations and seed demo data if the database is empty
+	cd $(API_DIR) && dotnet run --project src/Sitework.Api -- --migrate
+
+.PHONY: reset-demo-data
+reset-demo-data: ## Delete all local jobs and reseed the demo data
+	cd $(API_DIR) && dotnet run --project src/Sitework.Api -- --reset-demo-data
 
 .PHONY: db-reset
 db-reset: ## Delete all local data and restart PostGIS

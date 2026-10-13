@@ -4,5 +4,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sitework.Api.IntegrationTests/Sitework.Api.IntegrationTests.csproj" />
+    <Project Path="tests/Sitework.Api.UnitTests/Sitework.Api.UnitTests.csproj" />
   </Folder>
 </Solution>

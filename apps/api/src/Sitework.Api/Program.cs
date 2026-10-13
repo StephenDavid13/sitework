@@ -1,10 +1,11 @@
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using Sitework.Api;
 using Sitework.Api.Data;
+using Sitework.Api.Features.Jobs;
 using Sitework.Api.Features.Status;
+using Sitework.Api.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,36 +14,58 @@ if (!builder.Environment.IsDevelopment())
     builder.Logging.ClearProviders().AddJsonConsole();
 }
 
-// Connection string is resolved lazily so build-time OpenAPI generation works without one.
+builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = 64 * 1024);
+
+// Resolved lazily so build-time OpenAPI generation works without a database configured.
 builder.Services.AddDbContext<SiteworkDbContext>((services, options) =>
-    options.UseNpgsql(
-        services.GetRequiredService<IConfiguration>().GetConnectionString("Sitework"),
-        npgsql => npgsql.UseNetTopologySuite()));
+    SiteworkDbContext.Configure(options, DatabaseConnection.Resolve(services.GetRequiredService<IConfiguration>())));
 
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<SiteworkDbContext>("database", tags: [HealthTags.Ready]);
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddProblemDetails();
+builder.Services.AddValidation();
 builder.Services.AddOpenApi();
+builder.Services.AddClientProtection(builder.Configuration);
 builder.Services.ConfigureHttpJsonOptions(options =>
-    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    // Numbers are numbers: keeps the OpenAPI contract (and generated TS types) from allowing strings.
+    options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict;
+});
 
-var app = builder.Build();
+await using var app = builder.Build();
 
-app.UseExceptionHandler();
+if (DatabaseMaintenance.ParseCommand(args) is { } command)
+{
+    return await DatabaseMaintenance.RunAsync(app, command);
+}
+
+app.UseForwardedHeaders();
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    // Malformed JSON or an unknown enum value is the client's fault: 400, not 500.
+    StatusCodeSelector = exception => exception is BadHttpRequestException badRequest
+        ? badRequest.StatusCode
+        : StatusCodes.Status500InternalServerError,
+});
 app.UseStatusCodePages();
+app.UseRateLimiter();
 
 app.MapOpenApi();
 app.MapScalarApiReference();
 
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false })
+    .DisableRateLimiting();
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains(HealthTags.Ready),
-});
+}).DisableRateLimiting();
 
 var api = app.MapGroup("/api");
 api.MapStatusEndpoints();
+api.MapJobEndpoints();
 
-app.Run();
+await app.RunAsync();
+return 0;
