@@ -186,8 +186,9 @@ jobs:
     name: Deploy to EKS (dev)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != ''
     needs: [api, web, contract, deploy-config, e2e]
-    # Native arm64 builds for the Graviton nodes.
-    runs-on: ubuntu-24.04-arm
+    # Multi-arch images (Graviton or x86 nodes). Builds cross-compile on the runner's own
+    # architecture; QEMU only runs the tiny per-target runtime steps.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # No `environment:` here: the deploy role trusts only `repo:<owner>/<repo>:ref:refs/heads/main`.
     permissions:
@@ -204,7 +205,7 @@ jobs:
       - name: Ensure the AWS CLI is available
         run: |
           if ! command -v aws >/dev/null; then
-            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscli.zip
+            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/awscli.zip
             unzip -q /tmp/awscli.zip -d /tmp && sudo /tmp/aws/install
           fi
           aws --version
@@ -214,6 +215,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - id: ecr
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # ECR tags are immutable, so a re-run of the same commit reuses the images it already pushed.
       - id: existing
@@ -228,7 +230,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: apps/api
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.ecr.outputs.registry }}/sitework-api:${{ env.IMAGE_TAG }}
           cache-from: type=gha,scope=api
@@ -237,7 +239,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: apps/web
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.ecr.outputs.registry }}/sitework-web:${{ env.IMAGE_TAG }}
           cache-from: type=gha,scope=web

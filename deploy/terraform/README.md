@@ -16,7 +16,9 @@ All state uses S3 native locking (`use_lockfile = true`); there is no DynamoDB t
 
 - Terraform >= 1.11.1 from `hashicorp/tap` (the Homebrew-core formula is frozen at 1.5.7), AWS CLI v2, kubectl, Helm 4.
 - AWS credentials for the target account with admin-level rights (`aws sts get-caller-identity` must work).
-- **The account must be on the Paid plan.** Free-plan accounts can only launch Free Tier instance types, so the EKS node group never gets nodes. It sits in `CREATING`, with `RunInstances` failing in CloudTrail ("not eligible for Free Tier"). Upgrade in Billing → plan; any remaining credits still apply.
+- **Free-plan accounts** can only launch Free Tier-eligible instance types. Otherwise the EKS node group sits in `CREATING`, with `RunInstances` failing in CloudTrail ("not eligible for Free Tier"). You have two options:
+  - **Upgrade to the Paid plan** (Billing → plan; remaining credits still apply) and keep the default Graviton `t4g.medium` nodes.
+  - **Stay on the Free plan** with x86 `m7i-flex.large` nodes (8 GiB, eligible). Set `node_instance_types = ["m7i-flex.large"]` and `node_ami_type = "AL2023_x86_64_STANDARD"` in `envs/dev/infra/terraform.tfvars`; that's the setup for the `dev` account. Images are multi-arch (amd64 + arm64), so either works. Note that a Free-plan account is suspended when its credits run out, which at ~US$8–9/day takes a few weeks.
   Whoever applies `infra` becomes a cluster admin through an EKS access entry; use the same identity for `platform`.
 - Region defaults to `ap-southeast-2`; override with `AWS_REGION=...` on any target.
 

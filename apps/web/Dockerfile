@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
-# Build context: apps/web.
+# Build context: apps/web. Multi-arch: the build runs natively on the build host (the output
+# is platform-independent JavaScript); only the small runtime stage is per target platform.
 
-FROM node:24-alpine AS base
+FROM --platform=$BUILDPLATFORM node:24-alpine AS base
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
 WORKDIR /app

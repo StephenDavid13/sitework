@@ -99,17 +99,22 @@ HELM_NAMESPACE ?= sitework
 HELM_VALUES_PARAM ?= /sitework/dev/helm-values
 GIT_SHA        := $(shell git rev-parse --short=12 HEAD 2>/dev/null)
 ECR_REGISTRY    = $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com
+# Multi-arch, so the same tag runs on Graviton (default) or x86 nodes (Free-plan accounts).
+IMAGE_PLATFORMS ?= linux/amd64,linux/arm64
+BUILDX_BUILDER  ?= sitework
 
 .PHONY: aws-images
-aws-images: ## Build arm64 images for the current commit and push them to ECR (clean tree only)
+aws-images: ## Build amd64+arm64 images for the current commit and push them to ECR (clean tree only)
 	@test -z "$$(git status --porcelain)" || { echo "Commit or stash your changes first: images are tagged with the commit SHA" >&2; exit 1; }
 	aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ECR_REGISTRY)
+	@# The default "docker" driver can't push multi-platform images; use a dedicated BuildKit builder.
+	@docker buildx inspect $(BUILDX_BUILDER) >/dev/null 2>&1 || docker buildx create --name $(BUILDX_BUILDER) --driver docker-container >/dev/null
 	@set -euo pipefail; for app in api web; do \
 		repo=sitework-$$app; \
 		if aws ecr describe-images --region $(AWS_REGION) --repository-name $$repo --image-ids imageTag=$(GIT_SHA) >/dev/null 2>&1; then \
 			echo "$$repo:$(GIT_SHA) already in ECR (tags are immutable), skipping"; \
 		else \
-			docker buildx build --platform linux/arm64 --tag $(ECR_REGISTRY)/$$repo:$(GIT_SHA) --push apps/$$app; \
+			docker buildx build --builder $(BUILDX_BUILDER) --platform $(IMAGE_PLATFORMS) --tag $(ECR_REGISTRY)/$$repo:$(GIT_SHA) --push apps/$$app; \
 		fi; \
 	done
 

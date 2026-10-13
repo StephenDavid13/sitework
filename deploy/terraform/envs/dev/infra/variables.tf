@@ -35,9 +35,20 @@ variable "cluster_endpoint_public_access_cidrs" {
 }
 
 variable "node_instance_types" {
-  description = "Instance types for the managed node group (must be arm64 / Graviton to match the AMI type)."
+  description = "Instance types for the managed node group. Their CPU architecture must match node_ami_type."
   type        = list(string)
   default     = ["t4g.medium"]
+}
+
+variable "node_ami_type" {
+  description = "EKS-optimised AMI for the nodes: AL2023_ARM_64_STANDARD (Graviton, default) or AL2023_x86_64_STANDARD. Images are built for both architectures."
+  type        = string
+  default     = "AL2023_ARM_64_STANDARD"
+
+  validation {
+    condition     = contains(["AL2023_ARM_64_STANDARD", "AL2023_x86_64_STANDARD"], var.node_ami_type)
+    error_message = "node_ami_type must be AL2023_ARM_64_STANDARD or AL2023_x86_64_STANDARD."
+  }
 }
 
 variable "enable_waf" {
