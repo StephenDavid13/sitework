@@ -81,7 +81,7 @@ module "eks" {
   access_entries = {
     for name, entry in {
       github_deploy = {
-        principal_arn     = local.foundation.ci_role_arn
+        principal_arn     = try(local.foundation.ci_role_arn, null)
         kubernetes_groups = ["sitework-deployers"]
       }
     } : name => entry if entry.principal_arn != null
