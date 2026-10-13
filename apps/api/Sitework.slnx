@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Sitework.Api/Sitework.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Sitework.Api.IntegrationTests/Sitework.Api.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

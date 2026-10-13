@@ -1,0 +1,23 @@
+name: sitework
+
+services:
+  db:
+    # Multi-arch build of the official PostGIS image (postgis/postgis is amd64-only).
+    image: imresamu/postgis:17-3.5
+    environment:
+      POSTGRES_DB: sitework
+      POSTGRES_USER: sitework
+      POSTGRES_PASSWORD: sitework
+    ports:
+      # 55432 on the host: the usual 5432-5434 are often taken by other local Postgres instances.
+      - "55432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sitework -d sitework"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  db-data:

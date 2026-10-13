@@ -1,0 +1,74 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Sitework.Api | v1",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/status": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Service version and database connectivity.",
+        "operationId": "GetStatus",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthStatus": {
+        "enum": [
+          "Unhealthy",
+          "Degraded",
+          "Healthy"
+        ]
+      },
+      "StatusResponse": {
+        "required": [
+          "service",
+          "version",
+          "environment",
+          "database",
+          "serverTime"
+        ],
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "database": {
+            "$ref": "#/components/schemas/HealthStatus"
+          },
+          "serverTime": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "System"
+    }
+  ]
+}
