@@ -132,7 +132,7 @@ then retry.
 | While running | ~US$/month |
 |---|---|
 | EKS control plane | 73 |
-| 2 × t4g.medium nodes + 2 × 20 GB gp3 | 65 |
+| 2 × t4g.medium nodes + 2 × 20 GB gp3 (2 × m7i-flex.large on the Free plan: ~180) | 65 |
 | NAT gateway (+ data processing) | 45+ |
 | ALB (created by the app's Ingress) | 20–25 |
 | RDS db.t4g.micro + 20 GB gp3 | 22 |
@@ -140,7 +140,7 @@ then retry.
 | KMS key (EKS secrets), Secrets Manager secret | 2 |
 | CloudWatch Container Insights metrics + container logs (small cluster) | 5–15 |
 | AWS WAF (web ACL + 4 rules, + US$0.60/M requests) | 9 |
-| **Total** | **~250–275 (≈ US$8–9 per day)** |
+| **Total** | **~250–275 (≈ US$8–9 per day); ~365–390 (≈ US$12–13 per day) with m7i-flex.large** |
 
 Torn down to `foundation` only, it is roughly US$1/month: the hosted zone (US$0.50), ECR storage
 and state bucket storage. Destroy `infra` whenever you are not demoing.

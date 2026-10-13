@@ -140,8 +140,9 @@ git push                                # CI builds, pushes, migrates and deploy
 If your AWS organization blocks GitHub OIDC providers, set `enable_github_deploy = false` and
 release from your machine with `make aws-release` instead of the `gh variable set` step.
 
-Running it costs about US$8–9 a day. Images are multi-arch, so the nodes can be Graviton
-(default) or x86. AWS Free-plan accounts need the x86 Free Tier type; see
+Running it costs about US$8–9 a day on Graviton nodes, or US$12–13 on the x86 Free Tier
+nodes. Images are multi-arch, so the nodes can be Graviton (default) or x86. AWS Free-plan
+accounts need the x86 Free Tier type; see
 [deploy/terraform/README.md](deploy/terraform/README.md). To tear down, run `helm uninstall`, then destroy `platform`, then `infra`. `foundation` stays.
 Day-2 operations (rollbacks, logs, scaling, secrets) are in [docs/runbook.md](docs/runbook.md).
 

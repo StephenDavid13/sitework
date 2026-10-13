@@ -107,7 +107,7 @@ minutes. It also applies AWS managed rules: IP reputation, known-bad inputs and 
 ## Scaling
 
 - **Pods:** the HPA scales the API and web from 2 to 4 replicas each on CPU. Change `api.autoscaling` and `web.autoscaling` in `values-aws.yaml`.
-- **Nodes:** the managed node group is 2–4 × t4g.medium. Change `desired_size` and `max_size` in `deploy/terraform/envs/dev/infra/eks.tf`.
+- **Nodes:** the managed node group is 2–4 nodes of `node_instance_types` (m7i-flex.large in `deploy/terraform/envs/dev/infra/terraform.tfvars`, t4g.medium by default). Change `desired_size` and `max_size` in `deploy/terraform/envs/dev/infra/eks.tf`.
 - **Database:** db.t4g.micro. Change the instance class in `infra/rds.tf`. This restarts the instance, so do it in a quiet window.
 
 ## Rate limits (public site, no logins)
@@ -138,12 +138,22 @@ curl -s https://<host>/api/status   # "database":"Healthy"
 make aws-reset-demo-data   # wipes all jobs and reseeds the Auckland demo set
 ```
 
+## DNS
+
+ExternalDNS publishes `sitework.stephendavid.dev` as an alias to the ALB in the Ingress status.
+Next to it, it writes ownership TXT records (`_externaldns-a.…` and `_externaldns-aaaa.…`,
+owner `sitework-dev`). It only updates or deletes records that carry them.
+
+- **Check:** `kubectl -n external-dns logs deploy/external-dns`. A healthy sync logs `Desired change: CREATE …` once, then `All records are already up to date`.
+- **The name resolves to nothing, or to an old ALB, and the logs say "up to date":** the A/AAAA records exist without ownership TXT records, so ExternalDNS won't touch them. This happens to records created before the TXT prefix was set, because the apex name's TXT fell outside the zone. Compare `aws route53 list-resource-record-sets --hosted-zone-id <zone>` with `kubectl -n sitework get ingress`. Delete the stale A and AAAA aliases, and ExternalDNS recreates them, with their TXT records, within a minute.
+
 ## Incident checklist
 
 | Symptom | Look at |
 |---|---|
 | 502/503 from the ALB | `kubectl -n sitework get pods` (Ready?), readiness probe failures in events, ALB target health in the console |
 | API 5xx | CloudWatch Logs query above; `/api/status` database health; RDS CPU/connections |
+| Site doesn't resolve, or resolves to an old ALB | [DNS](#dns): ExternalDNS logs, then the zone's A/AAAA and `_externaldns-*` TXT records |
 | "Database unavailable" in the UI | RDS status and events; External Secret sync status; security groups |
 | Many 429s | A single IP hammering the site? Tighten with `inboundCidrs`, or raise limits if legitimate |
 | Deploy job fails at `configure-aws-credentials` | `AWS_DEPLOY_ROLE_ARN` repo variable; the workflow must run on `main` with no `environment:` |

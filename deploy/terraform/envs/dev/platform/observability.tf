@@ -41,6 +41,17 @@ resource "aws_eks_addon" "cloudwatch_observability" {
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 
+  # The API instruments itself (OpenTelemetry SDK → the agent's OTLP endpoint on :4316), so don't
+  # let the add-on inject auto-instrumentation init containers into every pod: they're redundant,
+  # and they break the namespace's "restricted" Pod Security level.
+  configuration_values = jsonencode({
+    manager = {
+      applicationSignals = {
+        autoMonitor = { monitorAllServices = false }
+      }
+    }
+  })
+
   pod_identity_association {
     role_arn        = module.cloudwatch_observability_pod_identity.iam_role_arn
     service_account = "cloudwatch-agent"

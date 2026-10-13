@@ -151,7 +151,7 @@ ingress:
   certificateArn: ""
   # AWS WAF web ACL to attach to the ALB (written to SSM by the infra stack when enabled).
   wafAclArn: ""
-  # Adds external-dns.alpha.kubernetes.io/hostname=<host> (ExternalDNS also reads the rules).
+  # Adds external-dns.kubernetes.io/hostname=<host> (ExternalDNS also reads the rules).
   externalDns: false
   # Optional client allowlist (alb.ingress.kubernetes.io/inbound-cidrs), e.g. to lock a demo
   # to a few IPs. Empty = open to the internet.

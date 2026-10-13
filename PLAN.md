@@ -4,7 +4,7 @@ An API-driven app for coordinating field work across many sites. Each record is 
 
 > "Sitework" and "Job" are working names. Renaming the domain (e.g. *Inspection*, *Work Order*, *Site Visit*) changes nothing structural.
 
-> **Status (2026-10-13):** milestones 0–6 and stretch goals 1, 3 and 4 are built, tested, and verified on kind. That includes the CI pipeline, which is green on GitHub. The first AWS apply reached the EKS control plane, RDS, VPC and certificate, then stopped: the account is on AWS's Free plan, which rejects the `t4g.medium` nodes. At the owner's request the environment was torn down to the long-lived `foundation` stack (DNS delegation for `sitework.stephendavid.dev` and ECR are kept). To go live, upgrade the account to the Paid plan, then run `make tf-apply-infra tf-apply-platform aws-release`. Where implementation departed from this plan, the text below has been updated and the reasoning recorded in [docs/adr](docs/adr).
+> **Status (2026-10-13):** milestones 0–6 and stretch goals 1, 3 and 4 are built, tested, and verified on kind. That includes the CI pipeline, which is green on GitHub. It is deployed to AWS at `sitework.stephendavid.dev`. The account is on AWS's Free plan, which rejects the planned `t4g.medium` nodes, so the cluster runs x86 Free Tier `m7i-flex.large` nodes; the images are multi-arch. Releases are made from a workstation with `make aws-release`, because the organization's SCP blocks the GitHub OIDC provider. Where implementation departed from this plan, the text below has been updated and the reasoning recorded in [docs/adr](docs/adr).
 
 ---
 

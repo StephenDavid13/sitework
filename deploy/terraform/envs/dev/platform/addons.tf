@@ -154,6 +154,11 @@ resource "helm_release" "external_dns" {
     policy        = "sync"
     registry      = "txt"
     txtOwnerId    = local.name
+    # The app lives at the zone apex. Without a prefix the ownership TXT for it would be named
+    # "a-sitework.<parent>", outside this zone, so Route 53 drops it and ExternalDNS can never
+    # update or delete the record it created. A dotted prefix keeps it inside the zone
+    # (_externaldns-a.sitework.<parent>).
+    txtPrefix = "_externaldns-%%{record_type}."
     # Belt and braces with the IAM policy: only ever look at the subdomain zone.
     extraArgs = ["--zone-id-filter=${local.foundation.zone_id}"]
     # Node IMDS is not reachable from pods (hop limit 1), so give the SDK its region.
