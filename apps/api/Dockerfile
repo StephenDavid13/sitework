@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Build context: apps/api. Cross-compiles on the build host's architecture for speed.
 
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 ARG TARGETARCH
 WORKDIR /src
 
